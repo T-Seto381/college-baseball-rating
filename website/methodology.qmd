@@ -99,9 +99,10 @@ comp_tbl <- comparison |>
     log_loss = round(log_loss, 4),
     accuracy = scales::percent(accuracy, accuracy = 0.1),
     brier    = round(brier, 4),
-    alpha    = round(alpha, 3),
-    c_scale  = round(c_scale, 2),
-    shrink   = round(shrink, 4)
+    alpha         = round(alpha, 3),
+    c_scale       = round(c_scale, 2),
+    shrink_year   = round(shrink_year, 4),
+    shrink_season = round(shrink_season, 4)
   ) |>
   arrange(log_loss) |>
   rename(

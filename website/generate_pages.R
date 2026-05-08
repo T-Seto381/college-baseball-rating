@@ -6,7 +6,6 @@
 
 suppressPackageStartupMessages({
   library(tidyverse)
-  library(quarto)
   library(readxl)
   library(fs)
 })
@@ -29,16 +28,12 @@ for (tm in all_teams) {
   out_file <- paste0("university/", tm, ".html")
   cat(sprintf("  %s → %s\n", tm, out_file))
 
-  tryCatch({
-    quarto_render(
-      input          = "university/_template.qmd",
-      output_file    = paste0(tm, ".html"),
-      execute_params = list(team = tm),
-      quiet          = TRUE
-    )
-  }, error = function(e) {
-    message("  ERROR: ", e$message)
-  })
+  ret <- system2("quarto", c(
+    "render", "university/_template.qmd",
+    "--output", paste0(tm, ".html"),
+    "-P", paste0("team:", tm)
+  ))
+  if (ret != 0) message("  ERROR: quarto render failed (exit code ", ret, ")")
 }
 
 # ---- リーグページ生成 ----
@@ -50,16 +45,12 @@ for (lg in all_leagues) {
   out_file <- paste0("league/", lg, ".html")
   cat(sprintf("  %s → %s\n", lg, out_file))
 
-  tryCatch({
-    quarto_render(
-      input          = "league/_template.qmd",
-      output_file    = paste0(lg, ".html"),
-      execute_params = list(league = lg),
-      quiet          = TRUE
-    )
-  }, error = function(e) {
-    message("  ERROR: ", e$message)
-  })
+  ret <- system2("quarto", c(
+    "render", "league/_template.qmd",
+    "--output", paste0(lg, ".html"),
+    "-P", paste0("league:", lg)
+  ))
+  if (ret != 0) message("  ERROR: quarto render failed (exit code ", ret, ")")
 }
 
 cat("\n=== ページ生成完了 ===\n")
