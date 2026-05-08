@@ -1,0 +1,36 @@
+# ---- Quarto 生成物 ----
+docs/
+.quarto/
+_freeze/
+
+# ---- generate_pages.R 生成 HTML ----
+website/university/*.html
+website/league/*.html
+
+# ---- R ----
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# ---- ローカルプレビュー ----
+mockup_preview.html
+
+# ---- スクレイピング中間ファイル（パイプライン不使用）----
+data_out/jsba_jingu_college_results_2019_2021.csv
+data_out/jubf_alljapan_results_2019_2021.csv
+data_out/jubf_league_official_links.csv
+data_out/league_results_non_omyu_raw.csv
+data_out/league_results_omyutech.csv
+data_out/missing_omyutech_leagues.csv
+data_out/national_tournament_results_2019_2021.csv
+data_out/omyutech_cup_urls.csv
+data_out/omyutech_game_results_201906_202111.csv
+data_out/omyutech_league_guess.csv
+
+# ---- ログ（再生成可） ----
+logs/
+
+# ---- OS / エディタ ----
+.DS_Store
+Thumbs.db

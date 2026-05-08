@@ -1,0 +1,149 @@
+---
+title: "計算方法"
+---
+
+```{r setup}
+library(tidyverse)
+library(reactable)
+library(plotly)
+library(lubridate)
+
+comparison <- read_csv("../logs/model_comparison.csv", show_col_types = FALSE)
+```
+
+## 概要
+
+このレーティングシステムは、試合の勝敗（および得失点）をもとに各チームの強さを数値化します。
+チームAが試合Bに勝てば、AのレートはBのレートに基づいた「期待値」分だけ上昇し、Bは対応して下降します。
+
+## Elo レーティング
+
+### 基本式
+
+$$
+E_i = \frac{1}{1 + 10^{(R_j - R_i)/400}}
+$$
+
+$$
+R_i' = R_i + K \cdot (S_i - E_i)
+$$
+
+| 記号 | 意味 |
+|------|------|
+| $R_i, R_j$ | 試合前のチームiとjのレーティング |
+| $E_i$ | チームiの期待勝率 |
+| $K$ | 更新係数（本システムでは **K = 50** 固定） |
+| $S_i$ | 実績値（勝=1, 引=0.5, 負=0） |
+
+初期レーティングは全チーム **1500** から開始します。
+
+### 得失点調整
+
+得失点差を加味した実績値 $S_i^{\mathrm{adj}}$ を使用する場合:
+
+$$
+S_i^{\mathrm{adj}} = (1-\alpha) \cdot S_i^{\mathrm{bin}} + \alpha \cdot \frac{\tanh(\Delta/c) + 1}{2}
+$$
+
+| パラメータ | 意味 |
+|-----------|------|
+| $\alpha \in [0,1]$ | 得失点差の重み（最適化対象） |
+| $\Delta = \text{得点}_i - \text{得点}_j$ | 得失点差 |
+| $c$ | スケール係数（最適化対象） |
+
+$\tanh$ 関数を使うことで得失点差の影響が過大にならないよう上限を設けています。
+
+## Glicko2 レーティング（改変版）
+
+Glicko2 は Elo を拡張し、レーティングの「信頼性」(RD: Rating Deviation) とボラティリティ ($\sigma$) を管理します。
+
+### 本システムでの実装
+
+- $RD = 10$（固定）を期待勝率計算の信頼度補正 $g(\phi)$ に使用
+- 更新速度は $K_{\mathrm{eff}} = 50$ を維持（Elo と比較可能にするため）
+- シーズン間の回帰率 $\mathrm{shrink}$ を最適化（評価期間のデータがない間の不確実性増加を模倣）
+
+$$
+g(\phi) = \frac{1}{\sqrt{1 + 3\phi^2/\pi^2}}, \quad \phi = \frac{RD}{173.72}
+$$
+
+$$
+E_i = \frac{1}{1 + 10^{-g(\phi)(R_i - R_j)/400}}
+$$
+
+Elo との違いは $g(\phi)$ による補正のみ。$RD=10$ では $g(\phi) \approx 0.995$ とほぼ 1 に近く、Elo との差は微小です。
+モデル比較によりどちらが予測精度で優れるかを判断します。
+
+## モデル比較
+
+4モデルをウォークフォワード交差検証で比較しました。
+
+**検証方法:**
+- 学習期間: 2000年〜2019年の試合で逐次更新
+- 評価期間: 2020年〜最新（`r max(read_csv("../data_out/big6_results_2000_2026.csv", show_col_types=FALSE)$gamedate)` まで）
+- 評価は各試合直前のレーティングを使った予測に基づく（リーク無し）
+
+### 評価指標
+
+| 指標 | 定義 | 良い値 |
+|------|------|--------|
+| **Log-loss** | $-\mathrm{mean}(y\log p + (1-y)\log(1-p))$ | 小さいほど良い |
+| **Accuracy** | 勝敗予測の正答率 | 大きいほど良い |
+| **Brier** | $\mathrm{mean}((y-p)^2)$ | 小さいほど良い |
+
+### 結果
+
+```{r model-comparison-table}
+comp_tbl <- comparison |>
+  mutate(
+    log_loss = round(log_loss, 4),
+    accuracy = scales::percent(accuracy, accuracy = 0.1),
+    brier    = round(brier, 4),
+    alpha    = round(alpha, 3),
+    c_scale  = round(c_scale, 2),
+    shrink   = round(shrink, 4)
+  ) |>
+  arrange(log_loss) |>
+  rename(
+    モデル = model, ログ損失 = log_loss,
+    正答率 = accuracy, ブライアスコア = brier
+  )
+
+reactable(
+  comp_tbl,
+  striped = TRUE, highlight = TRUE,
+  defaultSorted = list(ログ損失 = "asc"),
+  columns = list(
+    モデル     = colDef(minWidth = 160),
+    ログ損失   = colDef(width = 100, align = "right"),
+    正答率     = colDef(width = 90,  align = "right"),
+    ブライアスコア = colDef(width = 120, align = "right")
+  )
+)
+```
+
+```{r adopted-model}
+best <- comparison |> arrange(log_loss) |> slice(1)
+```
+
+ログ損失が最小であった **`r best$model`** を採用しています。
+
+## データソース
+
+| データ | 出典 | 期間 |
+|--------|------|------|
+| 東京六大学野球 試合結果 | [東京六大学野球連盟公式](https://www.big6.gr.jp) | 2000年〜現在 |
+
+## コード・データ公開
+
+計算コード・元データはすべて GitHub で公開しています。
+
+- **Repository:** [T-Seto381/college-baseball-rating](https://github.com/T-Seto381/college-baseball-rating)
+- **License:** MIT
+
+## 注意事項・制限
+
+- 異なるリーグ間の比較は、全国大会（選手権・神宮）でのみ交差するため初期段階では精度が低い
+- 引き分けは 0.5 勝として扱う
+- 中止試合はデータから除外されている
+- 年間 20 試合程度と試合数が少ないため、レートの収束に時間がかかる場合がある

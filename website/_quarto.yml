@@ -1,0 +1,36 @@
+project:
+  type: website
+  output-dir: ../docs
+
+website:
+  title: "大学野球レーティング"
+  description: "日本大学硬式野球 Elo/Glicko2 レーティングランキング"
+  navbar:
+    left:
+      - href: index.qmd
+        text: ランキング
+      - href: methodology.qmd
+        text: 計算方法
+    right:
+      - icon: github
+        href: https://github.com/T-Seto381/college-baseball-rating
+        aria-label: GitHub
+  search: true
+
+format:
+  html:
+    theme:
+      light: flatly
+      dark: darkly
+    css: styles.css
+    toc: false
+    page-layout: full
+    include-in-header:
+      text: |
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+execute:
+  freeze: false
+  echo: false
+  warning: false
+  message: false

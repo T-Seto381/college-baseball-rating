@@ -1,0 +1,299 @@
+/* ============================================================
+   大学野球レーティング - スタイルシート
+   FIFA World Ranking インスパイア: クリーン・ミニマル
+   ============================================================ */
+
+:root {
+  --bg:           #FFFFFF;
+  --bg-subtle:    #F7F7F7;
+  --border:       #E8E8E8;
+  --border-heavy: #111111;
+  --text:         #111111;
+  --text-muted:   #6B6B6B;
+  --text-faint:   #AAAAAA;
+  --win-color:    #111111;
+  --loss-color:   #111111;
+  --draw-color:   #AAAAAA;
+  --up-color:     #1A7F3C;
+  --down-color:   #C8001A;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont,
+               "Helvetica Neue", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Navbar ---- */
+.navbar, .navbar-default {
+  background: #111111 !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 52px !important;
+}
+.navbar-brand, .navbar .navbar-brand {
+  color: #FFFFFF !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.01em;
+  font-size: 0.95rem !important;
+  padding: 14px 0 !important;
+}
+.navbar-nav > li > a {
+  color: #888888 !important;
+  font-size: 0.78rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 500;
+}
+.navbar-nav > li > a:hover,
+.navbar-nav > li.active > a {
+  color: #FFFFFF !important;
+  background: transparent !important;
+}
+
+/* ---- Main layout ---- */
+main.content { padding-top: 32px; padding-bottom: 60px; }
+
+/* ---- Section titles ---- */
+h2, h3 {
+  font-size: 0.7rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em !important;
+  color: var(--text-muted) !important;
+  margin: 44px 0 14px !important;
+  padding-bottom: 8px !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+/* ---- Reactable table overrides ---- */
+.rt-table {
+  border-top: 2px solid var(--border-heavy) !important;
+  border-bottom: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-radius: 0 !important;
+}
+.rt-thead.-header .rt-th {
+  font-size: 0.67rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  color: var(--text-muted) !important;
+  border: none !important;
+  background: var(--bg) !important;
+  padding: 10px 12px !important;
+}
+.rt-tbody .rt-td {
+  border-top: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-left: none !important;
+  border-right: none !important;
+  padding: 11px 12px !important;
+  font-size: 0.88rem !important;
+  vertical-align: middle !important;
+  background: transparent !important;
+}
+.rt-tbody .rt-tr.-odd .rt-td,
+.rt-tbody .rt-tr.-even .rt-td { background: transparent !important; }
+.rt-tbody .rt-tr:hover .rt-td  { background: var(--bg-subtle) !important; }
+.rt-tr-group { border-bottom: none !important; }
+
+/* ---- Rank number ---- */
+.rank-number {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Team name with color bar ---- */
+.team-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+.team-color-bar {
+  width: 3px;
+  min-height: 30px;
+  border-radius: 1.5px;
+  flex-shrink: 0;
+}
+.team-name-link {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+.team-name-link:hover { text-decoration: underline; }
+
+/* ---- Rating ---- */
+.rating-number {
+  font-size: 1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Rank change ---- */
+.change-up   { color: var(--up-color);   font-weight: 700; font-size: 0.78rem; }
+.change-down { color: var(--down-color); font-weight: 700; font-size: 0.78rem; }
+.change-none { color: var(--text-faint); font-size: 0.82rem; }
+
+/* ---- Form indicators ---- */
+.form-cell   { display: flex; gap: 3px; align-items: center; }
+.form-w      { color: var(--win-color);  font-size: 0.92rem; line-height: 1; }
+.form-l      { color: var(--loss-color); font-size: 0.92rem; line-height: 1; }
+.form-d      { color: var(--draw-color); font-size: 0.92rem; line-height: 1; }
+
+/* ---- Rating badge (inline) ---- */
+.rating-badge {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Highlight cards ---- */
+.highlight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.highlight-card { background: var(--bg); padding: 20px 22px; }
+.highlight-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+.highlight-matchup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 0.93rem;
+}
+.score-win  { font-size: 1.2rem; font-weight: 900; }
+.score-lose { font-size: 1.2rem; color: var(--text-muted); }
+.highlight-meta { font-size: 0.72rem; color: var(--text-faint); margin-top: 6px; }
+
+/* ---- Team header (university page) ---- */
+.team-header {
+  padding: 28px 0 22px;
+  margin-bottom: 40px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.team-name-block .team-name {
+  font-size: 2.1rem;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin-bottom: 7px;
+}
+.team-name-block .team-league {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.team-stat-block { text-align: right; }
+.team-rank {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 3px;
+}
+.team-rating {
+  font-size: 2.7rem;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+.team-rating-label {
+  font-size: 0.67rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 3px;
+}
+
+/* ---- League header ---- */
+.league-header {
+  padding: 28px 0 22px;
+  margin-bottom: 40px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+/* ---- Game result symbols ---- */
+.result-w { color: var(--win-color);  font-size: 0.95rem; }
+.result-l { color: var(--loss-color); font-size: 0.95rem; }
+.result-d { color: var(--draw-color); font-size: 0.95rem; }
+
+/* ---- Back links ---- */
+.back-links {
+  margin-top: 44px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 20px;
+}
+.back-link {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+.back-link:hover { color: var(--text); text-decoration: underline; }
+
+/* ---- Methodology ---- */
+.formula-box {
+  background: var(--bg-subtle);
+  border-left: 3px solid var(--border-heavy);
+  padding: 14px 18px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.82rem;
+  line-height: 1.9;
+  margin: 8px 0 16px;
+  overflow-x: auto;
+}
+.note-box {
+  background: #FFFBF0;
+  border-left: 3px solid #C8A000;
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  color: #664A00;
+  margin: 8px 0;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .highlight-grid      { grid-template-columns: 1fr; }
+  .team-header         { flex-direction: column; gap: 16px; }
+  .league-header       { flex-direction: column; gap: 16px; }
+  .team-stat-block     { text-align: left; }
+}

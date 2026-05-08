@@ -1,0 +1,340 @@
+---
+title: "大学野球レーティング"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+library(tidyverse)
+library(reactable)
+library(htmltools)
+library(lubridate)
+
+# ---- データ読み込み ----
+final_ratings <- read_csv("../data_out/ratings/final_ratings.csv",
+                           show_col_types = FALSE) |>
+  mutate(date = as.Date(date))
+
+rating_hist <- read_csv("../data_out/ratings/rating_history.csv",
+                         show_col_types = FALSE) |>
+  mutate(date = as.Date(date))
+
+game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv",
+                          show_col_types = FALSE) |>
+  mutate(gamedate = as.Date(gamedate))
+
+teams_info <- readxl::read_excel("../data_out/teamdata.xlsx") |>
+  mutate(
+    c1 = paste0("#", ColorCode1),
+    c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
+    c3 = paste0("#", if_else(is.na(ColorCode3),
+                             if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+                             ColorCode3))
+  )
+
+# ---- 直近3試合の勝敗 ----
+form_raw <- bind_rows(
+  game_results |> transmute(gamedate, team = team1,
+                             own = score1, opp = score2),
+  game_results |> transmute(gamedate, team = team2,
+                             own = score2, opp = score1)
+) |>
+  arrange(team, desc(gamedate)) |>
+  group_by(team) |>
+  slice_head(n = 3) |>
+  mutate(res = case_when(own > opp ~ "W", own < opp ~ "L", TRUE ~ "D")) |>
+  summarise(form = paste(res, collapse = ""), .groups = "drop")
+
+# ---- ランク変動: 直前の試合日との比較 ----
+latest_date    <- max(game_results$gamedate)
+prev_game_date <- game_results |>
+  filter(gamedate < latest_date) |> pull(gamedate) |> max()
+
+prev_ranks <- rating_hist |>
+  filter(date <= prev_game_date) |>
+  group_by(team) |> slice_tail(n = 1) |> ungroup() |>
+  arrange(desc(display_rating)) |>
+  mutate(prev_rank = row_number()) |>
+  select(team, prev_rank)
+
+# ---- 直近試合日 ----
+last_game_dates <- bind_rows(
+  game_results |> transmute(team = team1, gamedate),
+  game_results |> transmute(team = team2, gamedate)
+) |>
+  group_by(team) |>
+  slice_max(gamedate, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  rename(last_gamedate = gamedate)
+
+# ---- ランキングテーブル構築 ----
+rank_tbl <- final_ratings |>
+  left_join(teams_info |> select(TeamShortName, TeamName, LeagueName, c1, c2, c3),
+            by = c("team" = "TeamShortName")) |>
+  left_join(form_raw,        by = "team") |>
+  left_join(prev_ranks,      by = "team") |>
+  left_join(last_game_dates, by = "team") |>
+  mutate(
+    rank_change = if_else(is.na(prev_rank), NA_integer_,
+                          as.integer(prev_rank - rank))
+  ) |>
+  arrange(rank)
+
+today_date <- Sys.Date()
+today_games <- game_results |> filter(gamedate == today_date)
+if (nrow(today_games) == 0) {
+  today_games <- game_results |>
+    filter(gamedate >= today_date - 7, gamedate < today_date) |>
+    arrange(desc(gamedate))
+  today_label <- "直近の試合"
+} else {
+  today_label <- paste0("本日の試合 (", format(today_date, "%Y年%m月%d日"), ")")
+}
+current_year <- max(year(game_results$gamedate))
+
+# ゲーム時レート → 偏差値スケール変換
+global_mean <- mean(rating_hist$rating)
+global_sd   <- sd(rating_hist$rating)
+to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
+```
+
+<div style="border-bottom:2px solid #111; padding-bottom:14px; margin-bottom:36px;">
+  <div style="font-size:1.9rem; font-weight:900; letter-spacing:-0.04em; line-height:1.1; margin-bottom:4px;">
+    大学野球レーティング
+  </div>
+  <div style="font-size:0.72rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
+    `r current_year`年度 · Glicko2 + Score モデル · 東京六大学
+  </div>
+</div>
+
+## 大学ランキング
+
+```{r university-ranking}
+# 勝敗フォーム描画ヘルパー
+form_html <- function(form_str) {
+  if (is.na(form_str) || form_str == "") return(tags$span())
+  chars <- strsplit(form_str, "")[[1]]
+  tagList(lapply(chars, function(ch) {
+    cls <- switch(ch, W = "form-w", L = "form-l", "form-d")
+    sym <- switch(ch, W = "\u25cb", L = "\u25cf", "\u25b3")
+    tags$span(class = paste("form-result", cls), sym, " ")
+  }))
+}
+
+# ランク変動描画ヘルパー
+change_html <- function(v) {
+  if (is.na(v))   return(tags$span(class = "change-new",  "NEW"))
+  if (v == 0)     return(tags$span(class = "change-none", "\u2014"))
+  if (v > 0)      return(tags$span(class = "change-up",   paste0("\u25b2", v)))
+  tags$span(class = "change-down", paste0("\u25bc", abs(v)))
+}
+
+reactable(
+  rank_tbl,
+  highlight  = TRUE,
+  pagination = FALSE,
+  columns = list(
+    rank = colDef(
+      name   = "順位",
+      width  = 58,
+      align  = "center",
+      cell   = function(v) tags$span(class = "rank-number", v)
+    ),
+    TeamName = colDef(
+      name  = "チーム",
+      minWidth = 180,
+      cell  = function(v, ri) {
+        row <- rank_tbl[ri + 1, ]
+        tags$div(
+          class = "team-name-cell",
+          tags$div(class = "team-color-bar",
+                   style = paste0("background:", row$c1)),
+          tags$a(
+            href  = paste0("university/", URLencode(row$team), ".html"),
+            class = "team-name-link",
+            style = paste0("color:", row$c1),
+            v
+          )
+        )
+      }
+    ),
+    LeagueName = colDef(
+      name  = "リーグ",
+      cell  = function(v) {
+        if (is.na(v)) return(tags$span())
+        tags$a(
+          href  = paste0("league/", URLencode(v), ".html"),
+          style = "text-decoration:none; font-size:0.82rem; color:#6B6B6B;",
+          v
+        )
+      }
+    ),
+    display_rating = colDef(
+      name  = "レート",
+      width = 90,
+      align = "right",
+      cell  = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+    ),
+    rank_change = colDef(
+      name  = "変動",
+      width = 68,
+      align = "center",
+      cell  = function(v) change_html(v)
+    ),
+    form = colDef(
+      name    = "直近3試合",
+      width   = 100,
+      align   = "center",
+      cell    = function(v) tags$div(class = "form-cell",
+                                     style = "justify-content:center",
+                                     form_html(v))
+    ),
+    last_gamedate = colDef(
+      name   = "直近試合日",
+      width  = 108,
+      align  = "right",
+      format = colFormat(date = TRUE, locales = "ja-JP")
+    ),
+    # 非表示列
+    team = colDef(show = FALSE), date = colDef(show = FALSE),
+    rating = colDef(show = FALSE),
+    c1 = colDef(show = FALSE), c2 = colDef(show = FALSE),
+    c3 = colDef(show = FALSE), prev_rank = colDef(show = FALSE)
+  )
+)
+```
+
+## リーグランキング
+
+```{r league-ranking}
+league_rank <- rank_tbl |>
+  group_by(LeagueName) |>
+  summarise(
+    avg_rating = round(mean(display_rating), 1),
+    n_teams    = n(),
+    .groups    = "drop"
+  ) |>
+  filter(!is.na(LeagueName)) |>
+  arrange(desc(avg_rating)) |>
+  mutate(league_rank = row_number())
+
+reactable(
+  league_rank,
+  highlight  = TRUE,
+  pagination = FALSE,
+  columns = list(
+    league_rank = colDef(name = "順位", width = 58, align = "center",
+                         cell = function(v) tags$span(class = "rank-number", v)),
+    LeagueName  = colDef(
+      name = "リーグ",
+      cell = function(v) {
+        tags$a(href  = paste0("league/", URLencode(v), ".html"),
+               style = "text-decoration:none; font-weight:700; color:#111;", v)
+      }
+    ),
+    avg_rating = colDef(name = "平均レート", width = 110, align = "right",
+                        cell = function(v) tags$span(class = "rating-number",
+                                                     sprintf("%.1f", v))),
+    n_teams    = colDef(name = "チーム数",   width = 90, align = "right")
+  )
+)
+```
+
+## 注目試合
+
+```{r highlight-games}
+#| output: asis
+
+if (nrow(today_games) > 0) {
+  top_game   <- today_games |>
+    mutate(total = r1_before + r2_before) |> arrange(desc(total)) |> slice(1)
+  y_actual   <- if_else(today_games$score1 > today_games$score2, 1,
+                        if_else(today_games$score1 < today_games$score2, 0, 0.5))
+  upset_game <- today_games |>
+    mutate(surprise = abs(y_actual - E1)) |> arrange(desc(surprise)) |> slice(1)
+
+  make_card <- function(label, g) {
+    info1 <- teams_info |> filter(TeamShortName == g$team1) |> slice(1)
+    info2 <- teams_info |> filter(TeamShortName == g$team2) |> slice(1)
+    t1n  <- if (nrow(info1) > 0) info1$TeamName else g$team1
+    t2n  <- if (nrow(info2) > 0) info2$TeamName else g$team2
+    col1 <- if (nrow(info1) > 0) info1$c1 else "#111111"
+    col2 <- if (nrow(info2) > 0) info2$c1 else "#111111"
+    d1   <- to_disp(g$r1_before)
+    d2   <- to_disp(g$r2_before)
+    w1   <- g$score1 > g$score2
+    cls1 <- if (isTRUE(w1)) "score-win" else "score-lose"
+    cls2 <- if (!isTRUE(w1)) "score-win" else "score-lose"
+    glue::glue(
+      '<div class="highlight-card">',
+      '<div class="highlight-label">{label}</div>',
+      '<div class="highlight-matchup">',
+      '<a href="university/{URLencode(g$team1)}.html" style="font-weight:700;text-decoration:none;color:{col1}">{t1n}</a>',
+      '<span class="rating-badge">({d1})</span>',
+      '<span class="{cls1}">{g$score1}</span>',
+      '<span style="color:#CCC">-</span>',
+      '<span class="{cls2}">{g$score2}</span>',
+      '<a href="university/{URLencode(g$team2)}.html" style="font-weight:700;text-decoration:none;color:{col2}">{t2n}</a>',
+      '<span class="rating-badge">({d2})</span>',
+      '</div>',
+      '<div class="highlight-meta">{format(g$gamedate,"%Y/%m/%d")} &middot; {g$gametype}</div>',
+      '</div>'
+    )
+  }
+
+  cat('<div class="highlight-grid">\n')
+  cat(make_card("最もレベルの高い試合", top_game))
+  cat(make_card("最大の番狂わせ",       upset_game))
+  cat('</div>\n')
+} else {
+  cat('<p style="color:#AAA;font-size:0.85rem;font-style:italic;">本日の試合データはありません。</p>\n')
+}
+```
+
+## `r today_label`
+
+```{r today-games-table}
+#| output: asis
+
+if (nrow(today_games) > 0) {
+  gms <- today_games |> arrange(desc(gamedate))
+  cat('<div style="display:flex;flex-direction:column;gap:1px;background:#E8E8E8;border:1px solid #E8E8E8;">\n')
+  for (i in seq_len(nrow(gms))) {
+    g    <- gms[i, ]
+    inf1 <- teams_info |> filter(TeamShortName == g$team1) |> slice(1)
+    inf2 <- teams_info |> filter(TeamShortName == g$team2) |> slice(1)
+    n1   <- if (nrow(inf1) > 0) inf1$TeamName else g$team1
+    n2   <- if (nrow(inf2) > 0) inf2$TeamName else g$team2
+    c1_  <- if (nrow(inf1) > 0) inf1$c1 else "#111111"
+    c2_  <- if (nrow(inf2) > 0) inf2$c1 else "#111111"
+    d1   <- to_disp(g$r1_before)
+    d2   <- to_disp(g$r2_before)
+    w1   <- !is.na(g$score1) && !is.na(g$score2) && g$score1 > g$score2
+    w2   <- !is.na(g$score1) && !is.na(g$score2) && g$score2 > g$score1
+    cls1 <- if (isTRUE(w1)) "score-win" else "score-lose"
+    cls2 <- if (isTRUE(w2)) "score-win" else "score-lose"
+    cat(glue::glue(
+      '<div class="highlight-card">',
+      '<div class="highlight-meta">{format(as.Date(g$gamedate), "%Y/%m/%d")} &middot; {g$gametype}</div>',
+      '<div class="highlight-matchup" style="margin-top:8px;">',
+      '<a href="university/{URLencode(g$team1)}.html" style="font-weight:700;text-decoration:none;color:{c1_}">{n1}</a>',
+      '<span class="rating-badge">({d1})</span>',
+      '<span class="{cls1}">{g$score1}</span>',
+      '<span style="color:#CCC">-</span>',
+      '<span class="{cls2}">{g$score2}</span>',
+      '<a href="university/{URLencode(g$team2)}.html" style="font-weight:700;text-decoration:none;color:{c2_}">{n2}</a>',
+      '<span class="rating-badge">({d2})</span>',
+      '</div>',
+      '</div>\n'
+    ))
+  }
+  cat('</div>\n')
+} else {
+  cat('<p style="color:#AAA; font-size:0.85rem; font-style:italic;">試合データが見つかりません。</p>\n')
+}
+```
+
+<div class="back-links">
+  <a href="methodology.html" class="back-link">&#8594; 計算方法の詳細</a>
+</div>
