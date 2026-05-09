@@ -572,6 +572,11 @@ if (nrow(default_focus) == 0) {
   )
 }
 
+year_focus_cards <- bind_rows(
+  year_focus |> filter(yr == "all"),
+  year_focus |> filter(yr != "all")
+)
+
 latest_opponent_games <- team_games_base |>
   arrange(desc(gamedate)) |>
   group_by(yr, team_b) |>
@@ -1482,20 +1487,35 @@ tagList(
 </div>
 
 ```{r year-archive-cards}
-if (nrow(year_focus) > 0) {
+if (nrow(year_focus_cards) > 0) {
   div(
     class = "history-yearbook-grid",
-    lapply(seq_len(nrow(year_focus)), function(i) {
-      row <- year_focus[i, ]
+    lapply(seq_len(nrow(year_focus_cards)), function(i) {
+      row <- year_focus_cards[i, ]
+      is_all_time <- row$yr == "all"
 
       tags$button(
         type = "button",
-        class = paste("history-year-card", if (row$yr == default_yr) "is-active" else ""),
+        class = paste(
+          c(
+            "history-year-card",
+            if (is_all_time) "history-year-card-alltime",
+            if (row$yr == default_yr) "is-active"
+          ),
+          collapse = " "
+        ),
         `data-year-card` = row$yr,
         `aria-pressed` = ifelse(row$yr == default_yr, "true", "false"),
-        div(class = "history-year-card-kicker", "Year Archive"),
+        div(class = "history-year-card-kicker", ifelse(is_all_time, "All-Time Archive", "Year Archive")),
         div(class = "history-year-card-title", row$year_label),
-        div(class = "history-year-card-copy", "年間ピーク、春秋終点、最大アップセット勝利"),
+        div(
+          class = "history-year-card-copy",
+          ifelse(
+            is_all_time,
+            "全期間のピーク、春秋終点、最大アップセット勝利をまとめて見直す通年ビューです。",
+            "年間ピーク、春秋終点、最大アップセット勝利"
+          )
+        ),
         div(
           class = "history-year-card-grid",
           div(
@@ -1523,7 +1543,10 @@ if (nrow(year_focus) > 0) {
             div(class = "history-year-item-note", row$upset_note)
           )
         ),
-        div(class = "history-year-card-footer", "この年で下の比較を切り替える")
+        div(
+          class = "history-year-card-footer",
+          ifelse(is_all_time, "全期間で下の比較を表示する", "この年で下の比較を切り替える")
+        )
       )
     })
   )

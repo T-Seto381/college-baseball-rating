@@ -681,6 +681,11 @@ if (nrow(default_focus) == 0) {
   )
 }
 
+year_focus_cards <- bind_rows(
+  year_focus |> filter(yr == "all"),
+  year_focus |> filter(yr != "all")
+)
+
 top_title_team <- season_title_board |> slice_head(n = 1)
 upset_record_board <- league_upset_wins |> slice_head(n = 10)
 
@@ -1050,11 +1055,15 @@ tagList(
     ),
     div(
       class = "year-focus-shell",
+    div(
+      class = "year-focus-header",
+      div(class = "control-label", "年度別サマリー"),
       div(
-        class = "year-focus-header",
-        div(class = "control-label", "年度別サマリー"),
-        div(class = "year-focus-year", `data-league-bind` = "year-label", paste0(default_focus$yr[[1]], "年"))
-      ),
+        class = "year-focus-year",
+        `data-league-bind` = "year-label",
+        ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+      )
+    ),
       div(
         class = "year-focus-grid year-focus-grid-wide",
         div(
@@ -1235,20 +1244,35 @@ tagList(
 </div>
 
 ```{r league-year-archive-cards}
-if (nrow(year_focus) > 0) {
+if (nrow(year_focus_cards) > 0) {
   div(
     class = "history-yearbook-grid",
-    lapply(seq_len(nrow(year_focus)), function(i) {
-      row <- year_focus[i, ]
+    lapply(seq_len(nrow(year_focus_cards)), function(i) {
+      row <- year_focus_cards[i, ]
+      is_all_time <- row$yr == "all"
 
       tags$button(
         type = "button",
-        class = paste("history-year-card", if (row$yr == default_yr) "is-active" else ""),
+        class = paste(
+          c(
+            "history-year-card",
+            if (is_all_time) "history-year-card-alltime",
+            if (row$yr == default_yr) "is-active"
+          ),
+          collapse = " "
+        ),
         `data-year-card` = row$yr,
         `aria-pressed` = ifelse(row$yr == default_yr, "true", "false"),
-        div(class = "history-year-card-kicker", "League Archive"),
-        div(class = "history-year-card-title", paste0(row$yr, "年")),
-        div(class = "history-year-card-copy", "春秋の終点首位、年間ピーク、最大アップセット勝利"),
+        div(class = "history-year-card-kicker", ifelse(is_all_time, "All-Time League", "League Archive")),
+        div(class = "history-year-card-title", ifelse(is_all_time, "全期間", paste0(row$yr, "年"))),
+        div(
+          class = "history-year-card-copy",
+          ifelse(
+            is_all_time,
+            "全期間の終点首位、歴代ピーク、最大アップセット勝利をまとめて比較する通年ビューです。",
+            "春秋の終点首位、年間ピーク、最大アップセット勝利"
+          )
+        ),
         div(
           class = "history-year-card-grid",
           div(
@@ -1276,7 +1300,10 @@ if (nrow(year_focus) > 0) {
             div(class = "history-year-item-note", row$upset_note)
           )
         ),
-        div(class = "history-year-card-footer", "この年で下の比較を切り替える")
+        div(
+          class = "history-year-card-footer",
+          ifelse(is_all_time, "全期間で下の比較を表示する", "この年で下の比較を切り替える")
+        )
       )
     })
   )

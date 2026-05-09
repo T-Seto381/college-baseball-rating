@@ -1392,6 +1392,15 @@ h3 {
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
+.history-year-card-alltime {
+  background:
+    linear-gradient(135deg, rgba(248, 251, 247, 0.99), rgba(220, 235, 228, 0.98));
+  border-color: rgba(31, 93, 77, 0.24);
+  box-shadow:
+    0 0 0 1px rgba(31, 93, 77, 0.06),
+    0 16px 30px rgba(20, 30, 40, 0.07);
+}
+
 .history-year-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 16px 30px rgba(20, 30, 40, 0.08);
@@ -1476,6 +1485,20 @@ h3 {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.history-year-card-alltime .history-year-card-title {
+  color: var(--accent);
+}
+
+.history-year-card-alltime .history-year-card-footer {
+  color: var(--ink);
+}
+
+@media (min-width: 961px) {
+  .history-year-card-alltime {
+    grid-column: span 2;
+  }
 }
 
 .record-grid {
