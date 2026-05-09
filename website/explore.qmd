@@ -346,6 +346,280 @@ league_directory <- teams_info |>
   left_join(league_peak, by = "LeagueName") |>
   arrange(desc(avg_rating), LeagueName)
 
+season_leaders <- season_ends |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    snapshot = map(end_date, function(d) {
+      rating_hist |>
+        filter(date <= d) |>
+        group_by(team) |>
+        slice_tail(n = 1) |>
+        ungroup() |>
+        select(team, display_rating)
+    })
+  ) |>
+  unnest(snapshot) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(yr_val, season, season_label, end_date) |>
+  mutate(season_rank = rank(desc(display_rating), ties.method = "min")) |>
+  ungroup() |>
+  filter(season_rank == 1) |>
+  arrange(desc(yr_val), desc(season == "秋"), TeamName) |>
+  transmute(
+    yr = as.character(yr_val),
+    season,
+    season_label,
+    TeamName,
+    display_rating = round(display_rating, 1),
+    end_date
+  )
+
+season_focus <- season_leaders |>
+  group_by(yr, season) |>
+  summarise(
+    leader_title = paste(TeamName, collapse = " / "),
+    leader_note = paste0(
+      if_else(n() > 1, "同率首位 ", ""),
+      "終了時レート ",
+      paste(sprintf("%.1f", display_rating), collapse = " / ")
+    ),
+    .groups = "drop"
+  ) |>
+  mutate(slot = if_else(season == "春", "spring", "fall")) |>
+  select(yr, slot, leader_title, leader_note) |>
+  pivot_wider(
+    names_from = slot,
+    values_from = c(leader_title, leader_note)
+  ) |>
+  transmute(
+    yr,
+    spring_title = leader_title_spring,
+    spring_note = leader_note_spring,
+    fall_title = leader_title_fall,
+    fall_note = leader_note_fall
+  )
+
+year_peak_focus <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  mutate(yr = as.character(year(date))) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(yr) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    yr,
+    peak_title = TeamName,
+    peak_note = paste0(
+      format(date, "%m/%d"),
+      " に年間ピーク ",
+      sprintf("%.1f", round(display_rating, 1))
+    )
+  )
+
+upset_focus <- analysis_games |>
+  mutate(
+    yr = as.character(year(gamedate)),
+    favorite = if_else(r1_before >= r2_before, team1, team2),
+    underdog = if_else(r1_before >= r2_before, team2, team1),
+    favorite_score = if_else(r1_before >= r2_before, score1, score2),
+    underdog_score = if_else(r1_before >= r2_before, score2, score1),
+    underdog_win_prob = if_else(r1_before >= r2_before, 1 - E1, E1)
+  ) |>
+  filter(underdog_score > favorite_score) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("favorite" = "TeamShortName")
+  ) |>
+  rename(favorite_name = TeamName) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("underdog" = "TeamShortName")
+  ) |>
+  rename(underdog_name = TeamName) |>
+  arrange(yr, underdog_win_prob, desc(abs(r1_before - r2_before)), desc(gamedate)) |>
+  group_by(yr) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    upset_title = underdog_name,
+    upset_note = paste0(
+      format(gamedate, "%m/%d"),
+      " 対 ",
+      favorite_name,
+      " 勝率 ",
+      sprintf("%.1f%%", 100 * underdog_win_prob)
+    )
+  )
+
+all_spring_focus <- season_leaders |>
+  filter(season == "春")
+
+if (nrow(all_spring_focus) > 0) {
+  all_spring_focus <- all_spring_focus |>
+    filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), TeamName) |>
+    summarise(
+      spring_title = paste(TeamName, collapse = " / "),
+      spring_note = paste0(
+        paste(season_label, collapse = " / "),
+        " 終了時レート ",
+        paste(sprintf("%.1f", display_rating), collapse = " / ")
+      )
+    )
+} else {
+  all_spring_focus <- tibble(
+    spring_title = "データなし",
+    spring_note = "該当シーズンなし"
+  )
+}
+
+all_fall_focus <- season_leaders |>
+  filter(season == "秋")
+
+if (nrow(all_fall_focus) > 0) {
+  all_fall_focus <- all_fall_focus |>
+    filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), TeamName) |>
+    summarise(
+      fall_title = paste(TeamName, collapse = " / "),
+      fall_note = paste0(
+        paste(season_label, collapse = " / "),
+        " 終了時レート ",
+        paste(sprintf("%.1f", display_rating), collapse = " / ")
+      )
+    )
+} else {
+  all_fall_focus <- tibble(
+    fall_title = "データなし",
+    fall_note = "該当シーズンなし"
+  )
+}
+
+all_peak_focus <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName))
+
+if (nrow(all_peak_focus) > 0) {
+  all_peak_focus <- all_peak_focus |>
+    filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+    arrange(desc(date), TeamName) |>
+    summarise(
+      peak_title = paste(TeamName, collapse = " / "),
+      peak_note = paste0(
+        paste(sprintf("%.1f", round(display_rating, 1)), collapse = " / "),
+        " / ",
+        paste(format(date, "%Y/%m/%d"), collapse = " / ")
+      )
+    )
+} else {
+  all_peak_focus <- tibble(
+    peak_title = "データなし",
+    peak_note = "該当データなし"
+  )
+}
+
+all_upset_focus <- analysis_games |>
+  mutate(
+    favorite = if_else(r1_before >= r2_before, team1, team2),
+    underdog = if_else(r1_before >= r2_before, team2, team1),
+    favorite_score = if_else(r1_before >= r2_before, score1, score2),
+    underdog_score = if_else(r1_before >= r2_before, score2, score1),
+    underdog_win_prob = if_else(r1_before >= r2_before, 1 - E1, E1)
+  ) |>
+  filter(underdog_score > favorite_score) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("favorite" = "TeamShortName")
+  ) |>
+  rename(favorite_name = TeamName) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("underdog" = "TeamShortName")
+  ) |>
+  rename(underdog_name = TeamName) |>
+  arrange(underdog_win_prob, desc(abs(r1_before - r2_before)), desc(gamedate)) |>
+  slice_head(n = 1)
+
+if (nrow(all_upset_focus) > 0) {
+  all_upset_focus <- all_upset_focus |>
+    transmute(
+      upset_title = underdog_name,
+      upset_note = paste0(
+        format(gamedate, "%Y/%m/%d"),
+        " 対 ",
+        favorite_name,
+        " 勝率 ",
+        sprintf("%.1f%%", 100 * underdog_win_prob)
+      )
+    )
+} else {
+  all_upset_focus <- tibble(
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
+year_focus <- tibble(yr = as.character(available_years)) |>
+  left_join(season_focus, by = "yr") |>
+  left_join(year_peak_focus, by = "yr") |>
+  left_join(upset_focus, by = "yr") |>
+  mutate(
+    spring_title = coalesce(spring_title, "データなし"),
+    spring_note = coalesce(spring_note, "該当シーズンなし"),
+    fall_title = coalesce(fall_title, "データなし"),
+    fall_note = coalesce(fall_note, "該当シーズンなし"),
+    peak_title = coalesce(peak_title, "データなし"),
+    peak_note = coalesce(peak_note, "該当データなし"),
+    upset_title = coalesce(upset_title, "記録なし"),
+    upset_note = coalesce(upset_note, "該当試合なし")
+  ) |>
+  bind_rows(
+    tibble(
+      yr = "all",
+      spring_title = all_spring_focus$spring_title[[1]],
+      spring_note = all_spring_focus$spring_note[[1]],
+      fall_title = all_fall_focus$fall_title[[1]],
+      fall_note = all_fall_focus$fall_note[[1]],
+      peak_title = all_peak_focus$peak_title[[1]],
+      peak_note = all_peak_focus$peak_note[[1]],
+      upset_title = all_upset_focus$upset_title[[1]],
+      upset_note = all_upset_focus$upset_note[[1]]
+    )
+  )
+
+year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
+
+default_focus <- year_focus |>
+  filter(yr == default_year) |>
+  slice(1)
+
+if (nrow(default_focus) == 0) {
+  default_focus <- tibble(
+    yr = default_year,
+    spring_title = "データなし",
+    spring_note = "該当シーズンなし",
+    fall_title = "データなし",
+    fall_note = "該当シーズンなし",
+    peak_title = "データなし",
+    peak_note = "該当データなし",
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
 search_targets <- bind_rows(
   teams_info |>
     transmute(
@@ -389,6 +663,7 @@ hero_script <- glue::glue(
   "
   (function() {{
     const targets = {search_targets_json};
+    const yearFocus = {year_focus_json};
     const defaultYear = '{default_year}';
 
     function normalize(value) {{
@@ -456,6 +731,29 @@ hero_script <- glue::glue(
       }}
     }}
 
+    function bindText(key, value) {{
+      document.querySelectorAll('[data-explore-bind=\"' + key + '\"]').forEach(function(node) {{
+        node.textContent = value || '';
+      }});
+    }}
+
+    function renderFocus(year) {{
+      const summary =
+        yearFocus.find(function(item) {{ return item.yr === String(year); }}) ||
+        yearFocus[0];
+      if (!summary) return;
+
+      bindText('year-label', summary.yr === 'all' ? '全期間' : summary.yr + '年');
+      bindText('spring-title', summary.spring_title);
+      bindText('spring-note', summary.spring_note);
+      bindText('fall-title', summary.fall_title);
+      bindText('fall-note', summary.fall_note);
+      bindText('peak-title', summary.peak_title);
+      bindText('peak-note', summary.peak_note);
+      bindText('upset-title', summary.upset_title);
+      bindText('upset-note', summary.upset_note);
+    }}
+
     function goSearch() {{
       const input = document.querySelector('[data-search-input]');
       if (!input) return;
@@ -479,10 +777,12 @@ hero_script <- glue::glue(
         (hasYearOption(storedYear) && storedYear) ||
         defaultYear;
       syncYear(year);
+      renderFocus(year);
 
       document.querySelectorAll('[data-global-year]').forEach(function(select) {{
         select.addEventListener('change', function(event) {{
           syncYear(event.target.value);
+          renderFocus(event.target.value);
         }});
       }});
 
@@ -541,7 +841,11 @@ tagList(
         div(
           class = "stat-card",
           div(class = "stat-label", "表示年度"),
-          div(class = "stat-value", default_year),
+          div(
+            class = "stat-value",
+            `data-explore-bind` = "year-label",
+            ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+          ),
           div(class = "stat-note", "一覧から移動した先でも年度選択を引き継げます")
         )
       )
@@ -581,6 +885,8 @@ tagList(
     div(
       class = "anchor-nav",
       tags$a(href = "#navigation-paths", class = "anchor-link", "導線"),
+      tags$a(href = "#information-structure", class = "anchor-link", "情報構造"),
+      tags$a(href = "#year-browse-focus", class = "anchor-link", "年度メモ"),
       tags$a(href = "#compare-start", class = "anchor-link", "比較開始"),
       tags$a(href = "#league-directory", class = "anchor-link", "リーグ一覧"),
       tags$a(href = "#university-directory", class = "anchor-link", "大学一覧")
@@ -671,6 +977,86 @@ div(
     div(class = "directory-structure-label", "History Layer"),
     div(class = "directory-structure-value", "歴代の強さをたどる"),
     div(class = "directory-structure-note", "年度別の終点、ピーク、アップセット記録を歴史ページで横断比較します。")
+  )
+)
+```
+
+## 年度別の探索メモ {#year-browse-focus}
+
+<div class="copy-shell">
+  <p class="section-lead">一覧ページでも、選択年度の春秋終点、年間ピーク、最大アップセットを先に確認できるようにしました。対象を探しながら「その年は誰を見るべきか」を決め、そのまま比較ページや歴史ページへ移るためのブリッジです。</p>
+  <p class="record-note">上の表示年度を切り替えると、この要約とリンク先の年度パラメータが連動します。</p>
+</div>
+
+```{r year-browse-focus}
+div(
+  class = "year-focus-shell year-focus-shell-standalone",
+  div(
+    class = "year-focus-header",
+    div(class = "control-label", "Browse Snapshot"),
+    div(
+      class = "year-focus-year",
+      `data-explore-bind` = "year-label",
+      ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+    )
+  ),
+  div(
+    class = "year-focus-grid year-focus-grid-wide",
+    div(
+      class = "year-focus-card",
+      div(class = "year-focus-label", "春の終点首位"),
+      div(class = "year-focus-value", `data-explore-bind` = "spring-title", default_focus$spring_title[[1]]),
+      div(class = "year-focus-note", `data-explore-bind` = "spring-note", default_focus$spring_note[[1]])
+    ),
+    div(
+      class = "year-focus-card",
+      div(class = "year-focus-label", "秋の終点首位"),
+      div(class = "year-focus-value", `data-explore-bind` = "fall-title", default_focus$fall_title[[1]]),
+      div(class = "year-focus-note", `data-explore-bind` = "fall-note", default_focus$fall_note[[1]])
+    ),
+    div(
+      class = "year-focus-card",
+      div(class = "year-focus-label", "年間ピーク"),
+      div(class = "year-focus-value", `data-explore-bind` = "peak-title", default_focus$peak_title[[1]]),
+      div(class = "year-focus-note", `data-explore-bind` = "peak-note", default_focus$peak_note[[1]])
+    ),
+    div(
+      class = "year-focus-card",
+      div(class = "year-focus-label", "最大アップセット"),
+      div(class = "year-focus-value", `data-explore-bind` = "upset-title", default_focus$upset_title[[1]]),
+      div(class = "year-focus-note", `data-explore-bind` = "upset-note", default_focus$upset_note[[1]])
+    )
+  ),
+  div(class = "record-note", "一覧から見つけた大学やリーグへ移動するときも、同じ年度を引き継いだまま詳細ページで見直せます。")
+)
+```
+
+```{r explore-rail}
+div(
+  class = "section-rail",
+  div(
+    class = "section-rail-head",
+    div(class = "control-label", "Browse Navigator"),
+    div(
+      class = "section-rail-year",
+      `data-explore-bind` = "year-label",
+      ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+    ),
+    div(
+      class = "section-rail-note",
+      "一覧ページを起点に、対象探し、選択年度の要約、比較開始、リーグ詳細、歴史アーカイブを往復しやすくするためのナビゲーションです。"
+    )
+  ),
+  div(
+    class = "section-rail-nav",
+    tags$a(href = "#navigation-paths", class = "section-rail-link", "導線"),
+    tags$a(href = "#information-structure", class = "section-rail-link", "情報構造"),
+    tags$a(href = "#year-browse-focus", class = "section-rail-link", "年度メモ"),
+    tags$a(href = "#compare-start", class = "section-rail-link", "比較開始"),
+    tags$a(href = "#league-directory", class = "section-rail-link", "リーグ一覧"),
+    tags$a(href = "#university-directory", class = "section-rail-link", "大学一覧"),
+    tags$a(href = "index.html", class = "section-rail-link", "現在の順位"),
+    tags$a(href = "history.html", class = "section-rail-link", "歴史と記録")
   )
 )
 ```
