@@ -232,6 +232,50 @@ year_summary <- tibble(yr = as.character(available_yrs)) |>
   mutate(year = as.integer(yr)) |>
   arrange(desc(year))
 
+latest_opponent_games <- team_games_base |>
+  arrange(desc(gamedate)) |>
+  group_by(yr, team_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    team_b,
+    latest_date = gamedate,
+    latest_result = result,
+    latest_score = paste0(score_a, " - ", score_b)
+  )
+
+opponent_upset_wins <- team_games_base |>
+  filter(result == "W") |>
+  arrange(team_win_prob, desc(abs(rate_a - rate_b)), desc(gamedate)) |>
+  group_by(yr, team_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    team_b,
+    upset_date = gamedate,
+    upset_prob = team_win_prob,
+    upset_score = paste0(score_a, " - ", score_b)
+  )
+
+opponent_summary <- team_games_base |>
+  group_by(yr, team_b, name_b, c1_b) |>
+  summarise(
+    games = n(),
+    wins = sum(result == "W", na.rm = TRUE),
+    losses = sum(result == "L", na.rm = TRUE),
+    draws = sum(result == "D", na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  left_join(latest_opponent_games, by = c("yr", "team_b")) |>
+  left_join(opponent_upset_wins, by = c("yr", "team_b")) |>
+  mutate(
+    win_pct = if_else(games > 0, wins / games, NA_real_),
+    year = as.integer(yr)
+  ) |>
+  arrange(desc(year), desc(games), desc(win_pct), name_b)
+
 team_games <- team_games_base |>
   arrange(desc(gamedate)) |>
   select(
@@ -301,6 +345,7 @@ hero_script <- glue::glue(
     const plotSelector = '#team-rating-chart .plotly, #team-rating-chart .js-plotly-plot';
     const tableFilters = [
       ['team-year-summary-table', 'yr'],
+      ['team-opponent-table', 'yr'],
       ['team-games-table', 'yr'],
       ['team-season-table', 'yr']
     ];
@@ -545,6 +590,7 @@ tagList(
   div(
     class = "anchor-nav",
     tags$a(href = "#year-summary", class = "anchor-link", "年度別サマリー"),
+    tags$a(href = "#opponent-comparison", class = "anchor-link", "対戦相手比較"),
     tags$a(href = "#rating-trend", class = "anchor-link", "レーティング推移"),
     tags$a(href = "#games", class = "anchor-link", "試合一覧"),
     tags$a(href = "#season-ratings", class = "anchor-link", "シーズン終点")
@@ -666,6 +712,147 @@ if (nrow(year_summary) > 0) {
   )
 } else {
   div(class = "copy-shell", tags$p("表示できる年度別サマリーデータがありません。"))
+}
+```
+
+## 対戦相手別比較 {#opponent-comparison}
+
+<div class="copy-shell">
+  <p class="section-lead">選択年度の対戦相手ごとの成績をまとめた比較表です。どこで勝ち越したか、直近の対戦がどう終わったか、どの相手に対して大きな番狂わせ勝利があったかを1か所で確認できます。</p>
+  <p class="record-note">表示年度を切り替えると、この表もその年の対戦だけに絞り込みます。</p>
+</div>
+
+```{r opponent-comparison-table}
+record_summary_cell <- function(wins, losses, draws, games) {
+  if (is.na(games) || games == 0) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", paste0(wins, "-", losses, "-", draws)),
+    tags$span(class = "rating-badge", paste0("勝率 ", sprintf("%.1f%%", 100 * wins / games)))
+  )
+}
+
+latest_matchup_cell <- function(date_val, result_val, score_val) {
+  if (is.na(date_val) || is.na(result_val) || is.na(score_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  result_label <- case_when(
+    result_val == "W" ~ "勝",
+    result_val == "L" ~ "敗",
+    TRUE ~ "分"
+  )
+  result_class <- case_when(
+    result_val == "W" ~ "result-w",
+    result_val == "L" ~ "result-l",
+    TRUE ~ "result-d"
+  )
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = paste("result-chip", result_class), result_label),
+    tags$span(class = "rating-badge", paste0(format(date_val, "%m/%d"), "  ", score_val))
+  )
+}
+
+upset_comparison_cell <- function(prob_val, date_val, score_val) {
+  if (is.na(prob_val) || is.na(date_val) || is.na(score_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f%%", 100 * prob_val)),
+    tags$span(class = "rating-badge", paste0(format(date_val, "%m/%d"), "  ", score_val))
+  )
+}
+
+if (nrow(opponent_summary) > 0) {
+  div(
+    class = "table-shell",
+    reactable(
+      opponent_summary,
+      filterable = TRUE,
+      defaultPageSize = 10,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(10, 20, 40),
+      defaultSorted = list(games = "desc"),
+      highlight = TRUE,
+      elementId = "team-opponent-table",
+      columns = list(
+        yr = colDef(show = FALSE, filterable = TRUE),
+        year = colDef(show = FALSE),
+        name_b = colDef(
+          name = "対戦相手",
+          minWidth = 190,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            row <- opponent_summary[ri, ]
+            tags$div(
+              class = "team-name-cell",
+              tags$div(class = "team-color-bar", style = paste0("background:", row$c1_b)),
+              tags$a(
+                href = team_url(row$team_b),
+                class = "team-name-link",
+                style = paste0("color:", row$c1_b),
+                v
+              )
+            )
+          }
+        ),
+        games = colDef(name = "試合", width = 74, align = "center", filterable = FALSE),
+        wins = colDef(
+          name = "成績",
+          minWidth = 120,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            record_summary_cell(
+              wins = v,
+              losses = opponent_summary$losses[[ri]],
+              draws = opponent_summary$draws[[ri]],
+              games = opponent_summary$games[[ri]]
+            )
+          }
+        ),
+        latest_date = colDef(
+          name = "直近対戦",
+          minWidth = 150,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            latest_matchup_cell(
+              date_val = v,
+              result_val = opponent_summary$latest_result[[ri]],
+              score_val = opponent_summary$latest_score[[ri]]
+            )
+          }
+        ),
+        upset_prob = colDef(
+          name = "最大アップセット勝利",
+          minWidth = 160,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            upset_comparison_cell(
+              prob_val = v,
+              date_val = opponent_summary$upset_date[[ri]],
+              score_val = opponent_summary$upset_score[[ri]]
+            )
+          }
+        ),
+        team_b = colDef(show = FALSE),
+        c1_b = colDef(show = FALSE),
+        losses = colDef(show = FALSE),
+        draws = colDef(show = FALSE),
+        latest_result = colDef(show = FALSE),
+        latest_score = colDef(show = FALSE),
+        upset_date = colDef(show = FALSE),
+        upset_score = colDef(show = FALSE),
+        win_pct = colDef(show = FALSE)
+      )
+    )
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる対戦相手比較データがありません。"))
 }
 ```
 
