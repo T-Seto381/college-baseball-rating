@@ -33,19 +33,19 @@ all_leagues <- unique(teams_info$LeagueName)
 cat("=== .qmd ファイル生成開始 ===\n")
 cat("大学:", length(all_teams), "校  リーグ:", length(all_leagues), "\n\n")
 
-# ---- テンプレート本文の読み込み（YAML frontmatter 以降） ----
-read_template_body <- function(path) {
-  lines <- readLines(path, encoding = "UTF-8")
-  yaml_end <- which(lines == "---")
+# ---- テンプレート行の読み込み（YAML frontmatter を除く） ----
+read_template_body_lines <- function(path) {
+  lines <- readLines(path, encoding = "UTF-8", warn = FALSE)
+  yaml_end <- which(trimws(lines) == "---")
   if (length(yaml_end) >= 2) {
-    paste(lines[(yaml_end[2] + 1):length(lines)], collapse = "\n")
+    lines[(yaml_end[2] + 1):length(lines)]
   } else {
-    paste(lines, collapse = "\n")
+    lines
   }
 }
 
-uni_body    <- read_template_body("university/_template.qmd")
-league_body <- read_template_body("league/_template.qmd")
+uni_body_lines    <- read_template_body_lines("university/_template.qmd")
+league_body_lines <- read_template_body_lines("league/_template.qmd")
 
 # ---- 大学ページ生成 ----
 cat("--- 大学ページ ---\n")
@@ -57,12 +57,23 @@ for (tm in all_teams) {
     message("  SKIP (no slug): ", tm); next
   }
   out_qmd <- paste0("university/", slug, ".qmd")
-  cat(sprintf("  %s (%s) → %s\n", tm, slug, out_qmd))
+  cat(sprintf("  %s (%s) -> %s\n", tm, slug, out_qmd))
 
-  content <- paste0(
-    '---\nparams:\n  team: "', tm, '"\nformat:\n  html:\n    page-layout: full\n---\n',
-    uni_body
+  # params$team をチーム名に直接置換（YAML内に日本語を埋め込まない）
+  body <- gsub("TEAM <- params\\$team",
+               sprintf('TEAM <- "%s"', tm),
+               uni_body_lines,
+               fixed = FALSE)
+
+  content <- c(
+    "---",
+    "format:",
+    "  html:",
+    "    page-layout: full",
+    "---",
+    body
   )
+
   con <- file(out_qmd, open = "w", encoding = "UTF-8")
   writeLines(content, con)
   close(con)
@@ -78,12 +89,23 @@ for (lg in all_leagues) {
     message("  SKIP (no slug): ", lg); next
   }
   out_qmd <- paste0("league/", slug, ".qmd")
-  cat(sprintf("  %s (%s) → %s\n", lg, slug, out_qmd))
+  cat(sprintf("  %s (%s) -> %s\n", lg, slug, out_qmd))
 
-  content <- paste0(
-    '---\nparams:\n  league: "', lg, '"\nformat:\n  html:\n    page-layout: full\n---\n',
-    league_body
+  # params$league をリーグ名に直接置換
+  body <- gsub("LEAGUE <- params\\$league",
+               sprintf('LEAGUE <- "%s"', lg),
+               league_body_lines,
+               fixed = FALSE)
+
+  content <- c(
+    "---",
+    "format:",
+    "  html:",
+    "    page-layout: full",
+    "---",
+    body
   )
+
   con <- file(out_qmd, open = "w", encoding = "UTF-8")
   writeLines(content, con)
   close(con)
