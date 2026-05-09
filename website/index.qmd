@@ -32,6 +32,13 @@ teams_info <- readxl::read_excel("../data_out/teamdata.xlsx") |>
                              ColorCode3))
   )
 
+# ASCII スラグ（日本語ファイル名はGitHub Pagesで正しくURLマッピングされないため）
+TEAM_SLUG <- c(
+  "東大"   = "todai",  "明治" = "meiji", "慶應"   = "keio",
+  "早稲田" = "waseda", "立教" = "rikkyo", "法政"  = "hosei"
+)
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
 # ---- 直近3試合の勝敗 ----
 form_raw <- bind_rows(
   game_results |> transmute(gamedate, team = team1,
@@ -133,7 +140,7 @@ reactable(
     ),
     TeamName = colDef(
       name  = "チーム",
-      minWidth = 180,
+      minWidth = 140,
       cell  = function(v, ri) {
         row <- rank_tbl[ri, ]
         tags$div(
@@ -141,7 +148,7 @@ reactable(
           tags$div(class = "team-color-bar",
                    style = paste0("background:", row$c1)),
           tags$a(
-            href  = paste0("university/", URLencode(row$team), ".html"),
+            href  = paste0("university/", TEAM_SLUG[row$team], ".html"),
             class = "team-name-link",
             style = paste0("color:", row$c1),
             v
@@ -154,7 +161,7 @@ reactable(
       cell  = function(v) {
         if (is.na(v)) return(tags$span())
         tags$a(
-          href  = paste0("league/", URLencode(v), ".html"),
+          href  = paste0("league/", LEAGUE_SLUG[v], ".html"),
           style = "text-decoration:none; font-size:0.82rem; color:#6B6B6B;",
           v
         )
@@ -182,7 +189,7 @@ reactable(
     ),
     last_gamedate = colDef(
       name   = "直近試合日",
-      width  = 108,
+      width  = 120,
       align  = "right",
       format = colFormat(date = TRUE, locales = "ja-JP")
     ),
@@ -219,7 +226,7 @@ reactable(
     LeagueName  = colDef(
       name = "リーグ",
       cell = function(v) {
-        tags$a(href  = paste0("league/", URLencode(v), ".html"),
+        tags$a(href  = paste0("league/", LEAGUE_SLUG[v], ".html"),
                style = "text-decoration:none; font-weight:700; color:#111;", v)
       }
     ),
@@ -260,12 +267,12 @@ if (nrow(today_games) > 0) {
       '<div class="highlight-card">',
       '<div class="highlight-label">{label}</div>',
       '<div class="highlight-matchup">',
-      '<a href="university/{URLencode(g$team1)}.html" style="font-weight:700;text-decoration:none;color:{col1}">{t1n}</a>',
+      '<a href="university/{TEAM_SLUG[g$team1]}.html" style="font-weight:700;text-decoration:none;color:{col1}">{t1n}</a>',
       '<span class="rating-badge">({d1})</span>',
       '<span class="{cls1}">{g$score1}</span>',
       '<span style="color:#CCC">-</span>',
       '<span class="{cls2}">{g$score2}</span>',
-      '<a href="university/{URLencode(g$team2)}.html" style="font-weight:700;text-decoration:none;color:{col2}">{t2n}</a>',
+      '<a href="university/{TEAM_SLUG[g$team2]}.html" style="font-weight:700;text-decoration:none;color:{col2}">{t2n}</a>',
       '<span class="rating-badge">({d2})</span>',
       '</div>',
       '<div class="highlight-meta">{format(g$gamedate,"%Y/%m/%d")} &middot; {g$gametype}</div>',
@@ -308,12 +315,12 @@ if (nrow(today_games) > 0) {
       '<div class="highlight-card">',
       '<div class="highlight-meta">{format(as.Date(g$gamedate), "%Y/%m/%d")} &middot; {g$gametype}</div>',
       '<div class="highlight-matchup" style="margin-top:8px;">',
-      '<a href="university/{URLencode(g$team1)}.html" style="font-weight:700;text-decoration:none;color:{c1_}">{n1}</a>',
+      '<a href="university/{TEAM_SLUG[g$team1]}.html" style="font-weight:700;text-decoration:none;color:{c1_}">{n1}</a>',
       '<span class="rating-badge">({d1})</span>',
       '<span class="{cls1}">{g$score1}</span>',
       '<span style="color:#CCC">-</span>',
       '<span class="{cls2}">{g$score2}</span>',
-      '<a href="university/{URLencode(g$team2)}.html" style="font-weight:700;text-decoration:none;color:{c2_}">{n2}</a>',
+      '<a href="university/{TEAM_SLUG[g$team2]}.html" style="font-weight:700;text-decoration:none;color:{c2_}">{n2}</a>',
       '<span class="rating-badge">({d2})</span>',
       '</div>',
       '</div>\n'

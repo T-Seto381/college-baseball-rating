@@ -50,6 +50,12 @@ total_teams    <- nrow(all_ranked)
 
 current_year <- max(year(game_results$gamedate))
 
+TEAM_SLUG <- c(
+  "東大"   = "todai",  "明治" = "meiji", "慶應"   = "keio",
+  "早稲田" = "waseda", "立教" = "rikkyo", "法政"  = "hosei"
+)
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
 # 全期間平均・標準偏差（ゲームレート表示用）
 global_mean <- mean(rating_hist$rating)
 global_sd   <- sd(rating_hist$rating)
@@ -62,7 +68,7 @@ to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
     <div>
       <div style="font-size:2.1rem; font-weight:900; letter-spacing:-0.04em; line-height:1; color:`r c1`; margin-bottom:7px;">`r team_full_name`</div>
       <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
-        <a href="../league/`r URLencode(league_name)`.html"
+        <a href="../league/`r LEAGUE_SLUG[league_name]`.html"
            style="color:#6B6B6B; text-decoration:none;">`r league_name`</a>
       </div>
     </div>
@@ -224,7 +230,7 @@ reactable(
       cell = function(v, ri) {
         row <- team_games[ri, ]
         tags$span(
-          tags$a(href  = paste0(URLencode(row$opp), ".html"),
+          tags$a(href  = paste0(TEAM_SLUG[row$opp], ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$opp_c1),
                  v),
           tags$span(class = "rating-badge", paste0("(", row$disp_b, ")"))

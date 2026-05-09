@@ -71,6 +71,11 @@ global_mean <- mean(rating_hist$rating)
 global_sd   <- sd(rating_hist$rating)
 to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
 
+TEAM_SLUG <- c(
+  "東大"   = "todai",  "明治" = "meiji", "慶應"   = "keio",
+  "早稲田" = "waseda", "立教" = "rikkyo", "法政"  = "hosei"
+)
+
 # チームカラーマップ (ShortName → c1)
 team_color_map <- setNames(league_team_info$c1, league_team_info$TeamShortName)
 team_name_map  <- setNames(league_team_info$TeamName, league_team_info$TeamShortName)
@@ -180,7 +185,7 @@ reactable(
           tags$div(class = "team-color-bar",
                    style = paste0("background:", row$c1)),
           tags$a(
-            href  = paste0("../university/", URLencode(row$team), ".html"),
+            href  = paste0("../university/", TEAM_SLUG[row$team], ".html"),
             class = "team-name-link",
             style = paste0("color:", row$c1),
             v
@@ -252,7 +257,7 @@ reactable(
       cell = function(v, ri) {
         row <- league_games[ri, ]
         tags$span(
-          tags$a(href  = paste0("../university/", URLencode(row$team_a), ".html"),
+          tags$a(href  = paste0("../university/", TEAM_SLUG[row$team_a], ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$c1_a),
                  v),
           tags$span(class = "rating-badge", paste0("(", row$disp_a, ")"))
@@ -288,7 +293,7 @@ reactable(
       cell = function(v, ri) {
         row <- league_games[ri, ]
         tags$span(
-          tags$a(href  = paste0("../university/", URLencode(row$team_b), ".html"),
+          tags$a(href  = paste0("../university/", TEAM_SLUG[row$team_b], ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$c1_b),
                  v),
           tags$span(class = "rating-badge", paste0("(", row$disp_b, ")"))
