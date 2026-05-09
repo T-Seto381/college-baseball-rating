@@ -354,7 +354,7 @@ tagList(
         h1(class = "hero-title", "大学野球レーティング"),
         p(
           class = "hero-subtitle",
-          "東京六大学野球の試合結果から算出したレーティングを、大学別・リーグ別・試合別に公開しています。"
+          "東京六大学野球の試合結果から算出したレーティングを、現在の勢力図と歴史の推移の両方から確認できるように整理しています。"
         ),
         div(
           class = "meta-pills",
@@ -422,6 +422,35 @@ tagList(
   )
 )
 ```
+
+## 見るテーマ
+
+<div class="route-grid">
+  <a href="#current-view" class="route-card">
+    <div class="route-label">Current Snapshot</div>
+    <div class="route-title">現在の大学ランキング</div>
+    <div class="route-copy">最新試合を反映した順位、リーグ平均、直近の注目試合をまとめて確認します。</div>
+    <div class="route-link">ランキングを見る &#8595;</div>
+  </a>
+  <a href="history.html" class="route-card route-card-emphasis">
+    <div class="route-label">Historical Archive</div>
+    <div class="route-title">歴史と記録をたどる</div>
+    <div class="route-copy">春秋シーズンの終了時点首位、大学別ピーク、最大アップセットを横断して見られます。</div>
+    <div class="route-link">歴代アーカイブへ &#8594;</div>
+  </a>
+  <a href="league/tokyo6.html" class="route-card">
+    <div class="route-label">League Detail</div>
+    <div class="route-title">東京六大学の詳細へ</div>
+    <div class="route-copy">リーグ内の推移、所属校比較、年度別の試合一覧をまとめて追えます。</div>
+    <div class="route-link">リーグページへ &#8594;</div>
+  </a>
+</div>
+
+<div class="copy-shell">
+  <p class="section-lead">現在の強さを見る導線と、歴代の強さをたどる導線を分けておくことで、今後リーグや大学が増えても情報構造を拡張しやすくしています。</p>
+</div>
+
+<div id="current-view"></div>
 
 ## 大学ランキング
 

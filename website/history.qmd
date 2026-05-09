@@ -1,0 +1,889 @@
+---
+title: "歴史と記録"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+library(tidyverse)
+library(reactable)
+library(htmltools)
+library(lubridate)
+
+final_ratings <- read_csv("../data_out/ratings/final_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+rating_hist <- read_csv("../data_out/ratings/rating_history.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(gamedate = as.Date(gamedate))
+
+teams_info <- readxl::read_excel("../data_out/teamdata.xlsx") |>
+  mutate(
+    c1 = paste0("#", ColorCode1),
+    c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
+    c3 = paste0(
+      "#",
+      if_else(
+        is.na(ColorCode3),
+        if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+        ColorCode3
+      )
+    )
+  )
+
+TEAM_SLUG <- c(
+  "東大" = "todai",
+  "明治" = "meiji",
+  "慶應" = "keio",
+  "早稲田" = "waseda",
+  "立教" = "rikkyo",
+  "法政" = "hosei"
+)
+
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
+team_url <- function(team, prefix = "") {
+  slug <- TEAM_SLUG[[team]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "university/", slug, ".html")
+}
+
+league_url <- function(league, prefix = "") {
+  slug <- LEAGUE_SLUG[[league]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "league/", slug, ".html")
+}
+
+team_link_cell <- function(name, team, color, prefix = "") {
+  tags$div(
+    class = "team-name-cell",
+    tags$div(class = "team-color-bar", style = paste0("background:", color)),
+    tags$a(
+      href = team_url(team, prefix),
+      class = "team-name-link",
+      style = paste0("color:", color),
+      name
+    )
+  )
+}
+
+search_targets <- bind_rows(
+  teams_info |>
+    transmute(
+      label = TeamName,
+      search = paste(TeamName, TeamShortName, LeagueName),
+      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+    ),
+  teams_info |>
+    distinct(LeagueName) |>
+    transmute(
+      label = LeagueName,
+      search = LeagueName,
+      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+    )
+) |>
+  filter(!is.na(url))
+
+search_targets_json <- jsonlite::toJSON(search_targets, dataframe = "rows", auto_unbox = TRUE)
+
+analysis_games <- game_results |>
+  filter(gamedate <= Sys.Date())
+
+coverage_start <- min(analysis_games$gamedate)
+coverage_end <- max(analysis_games$gamedate)
+available_yrs <- sort(unique(year(analysis_games$gamedate)), decreasing = TRUE)
+default_yr <- if (length(available_yrs) > 0) {
+  as.character(available_yrs[[1]])
+} else {
+  as.character(year(coverage_end))
+}
+
+season_ends <- analysis_games |>
+  group_by(yr_val = year(gamedate), season) |>
+  summarise(end_date = max(gamedate), .groups = "drop") |>
+  arrange(desc(yr_val), desc(season == "秋"))
+
+season_snapshots <- season_ends |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    ratings = map(end_date, function(d) {
+      rating_hist |>
+        filter(date <= d) |>
+        group_by(team) |>
+        slice_tail(n = 1) |>
+        ungroup() |>
+        select(team, display_rating)
+    })
+  ) |>
+  unnest(ratings) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(season_label, yr_val, season, end_date) |>
+  mutate(season_rank = rank(desc(display_rating), ties.method = "min")) |>
+  ungroup()
+
+season_leaders <- season_snapshots |>
+  filter(season_rank == 1) |>
+  arrange(desc(yr_val), desc(season == "秋"), TeamName) |>
+  transmute(
+    yr = as.character(yr_val),
+    year = yr_val,
+    season,
+    season_label,
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    display_rating = round(display_rating, 1),
+    end_date
+  )
+
+season_rankings <- season_snapshots |>
+  arrange(desc(yr_val), desc(season == "秋"), season_rank, TeamName) |>
+  transmute(
+    yr = as.character(yr_val),
+    season_label,
+    season_rank,
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    display_rating = round(display_rating, 1),
+    end_date
+  )
+
+season_focus <- season_leaders |>
+  group_by(year, season) |>
+  summarise(
+    leader_title = paste(TeamName, collapse = " / "),
+    leader_note = paste0(
+      if_else(n() > 1, "同率首位 ", ""),
+      "終了時レート ",
+      paste(sprintf("%.1f", display_rating), collapse = " / ")
+    ),
+    .groups = "drop"
+  ) |>
+  mutate(slot = if_else(season == "春", "spring", "fall")) |>
+  select(year, slot, leader_title, leader_note) |>
+  pivot_wider(
+    names_from = slot,
+    values_from = c(leader_title, leader_note)
+  ) |>
+  transmute(
+    yr = as.character(year),
+    spring_title = leader_title_spring,
+    spring_note = leader_note_spring,
+    fall_title = leader_title_fall,
+    fall_note = leader_note_fall
+  )
+
+team_best_season <- season_snapshots |>
+  group_by(team) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    peak_season = season_label,
+    peak_season_rating = round(display_rating, 1)
+  )
+
+team_peaks <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(team, TeamName, LeagueName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  left_join(
+    final_ratings |> select(team, current_rating = display_rating, current_rank = rank),
+    by = "team"
+  ) |>
+  left_join(team_best_season, by = "team") |>
+  arrange(desc(display_rating)) |>
+  transmute(
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    peak_rating = round(display_rating, 1),
+    peak_date = date,
+    peak_season,
+    peak_season_rating,
+    current_rating = round(current_rating, 1),
+    current_rank
+  )
+
+global_sd <- sd(rating_hist$rating)
+
+upset_games <- analysis_games |>
+  mutate(
+    yr = as.character(year(gamedate)),
+    favorite = if_else(r1_before >= r2_before, team1, team2),
+    underdog = if_else(r1_before >= r2_before, team2, team1),
+    favorite_score = if_else(r1_before >= r2_before, score1, score2),
+    underdog_score = if_else(r1_before >= r2_before, score2, score1),
+    underdog_win_prob = if_else(r1_before >= r2_before, 1 - E1, E1),
+    rating_gap = abs(r1_before - r2_before),
+    delta_disp = round(10 * abs(delta) / global_sd, 1),
+    dog_won = underdog_score > favorite_score
+  ) |>
+  filter(dog_won) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, c1),
+    by = c("underdog" = "TeamShortName")
+  ) |>
+  rename(underdog_name = TeamName, underdog_c1 = c1) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, c1),
+    by = c("favorite" = "TeamShortName")
+  ) |>
+  rename(favorite_name = TeamName, favorite_c1 = c1) |>
+  arrange(underdog_win_prob, desc(rating_gap), desc(gamedate)) |>
+  transmute(
+    yr,
+    gamedate,
+    gametype,
+    underdog,
+    underdog_name,
+    underdog_c1,
+    favorite,
+    favorite_name,
+    favorite_c1,
+    scoreline = paste0(underdog_score, " - ", favorite_score),
+    underdog_win_prob,
+    rating_gap = round(rating_gap, 1),
+    delta_disp
+  )
+
+upset_focus <- upset_games |>
+  group_by(yr) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    upset_title = underdog_name,
+    upset_note = paste0(
+      format(gamedate, "%m/%d"),
+      "  対 ",
+      favorite_name,
+      "  事前勝率 ",
+      sprintf("%.1f%%", 100 * underdog_win_prob)
+    )
+  )
+
+year_focus <- tibble(yr = as.character(available_yrs)) |>
+  left_join(season_focus, by = "yr") |>
+  left_join(upset_focus, by = "yr") |>
+  mutate(
+    spring_title = coalesce(spring_title, "データなし"),
+    spring_note = coalesce(spring_note, "該当シーズンなし"),
+    fall_title = coalesce(fall_title, "データなし"),
+    fall_note = coalesce(fall_note, "該当シーズンなし"),
+    upset_title = coalesce(upset_title, "記録なし"),
+    upset_note = coalesce(upset_note, "該当試合なし")
+  )
+
+year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
+
+default_focus <- year_focus |>
+  filter(yr == default_yr) |>
+  slice(1)
+
+if (nrow(default_focus) == 0) {
+  default_focus <- tibble(
+    yr = default_yr,
+    spring_title = "データなし",
+    spring_note = "該当シーズンなし",
+    fall_title = "データなし",
+    fall_note = "該当シーズンなし",
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
+all_time_peak <- team_peaks |> slice_head(n = 1)
+top_season_record <- season_rankings |>
+  arrange(desc(display_rating), desc(end_date)) |>
+  slice_head(n = 1)
+top_upset <- upset_games |> slice_head(n = 1)
+```
+
+```{r hero}
+search_options <- tags$datalist(
+  id = "site-search-options",
+  lapply(search_targets$label, function(lbl) tags$option(value = lbl))
+)
+
+hero_script <- glue::glue(
+  "
+  (function() {{
+    const targets = {search_targets_json};
+    const yearFocus = {year_focus_json};
+    const defaultYear = '{default_yr}';
+    const tableFilters = [
+      ['history-leaders-table', 'yr'],
+      ['history-season-table', 'yr'],
+      ['history-upsets-table', 'yr']
+    ];
+
+    function normalize(value) {{
+      return String(value || '').replace(/\\s+/g, '').toLowerCase();
+    }}
+
+    function syncYear(value) {{
+      if (!value) return;
+      window.localStorage.setItem('cbr-selected-year', value);
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        if ([].some.call(select.options, function(opt) {{ return opt.value === value; }})) {{
+          select.value = value;
+        }}
+      }});
+    }}
+
+    function bindText(key, value) {{
+      document.querySelectorAll('[data-history-bind=\"' + key + '\"]').forEach(function(node) {{
+        node.textContent = value || '';
+      }});
+    }}
+
+    function renderFocus(year) {{
+      const summary =
+        yearFocus.find(function(item) {{ return item.yr === String(year); }}) ||
+        yearFocus[0];
+      if (!summary) return;
+
+      bindText('year-label', summary.yr + '年');
+      bindText('spring-title', summary.spring_title);
+      bindText('spring-note', summary.spring_note);
+      bindText('fall-title', summary.fall_title);
+      bindText('fall-note', summary.fall_note);
+      bindText('upset-title', summary.upset_title);
+      bindText('upset-note', summary.upset_note);
+    }}
+
+    function applyYear(year) {{
+      syncYear(year);
+      renderFocus(year);
+
+      function updateTables() {{
+        if (!window.Reactable) {{
+          setTimeout(updateTables, 100);
+          return;
+        }}
+
+        tableFilters.forEach(function(target) {{
+          Reactable.setFilter(target[0], target[1], year);
+        }});
+      }}
+
+      updateTables();
+    }}
+
+    function goSearch() {{
+      const input = document.querySelector('[data-search-input]');
+      if (!input) return;
+      const key = normalize(input.value);
+      if (!key) return;
+      const match = targets.find(function(target) {{
+        return normalize(target.label) === key || normalize(target.search).indexOf(key) !== -1;
+      }});
+      if (match) {{
+        syncYear(document.querySelector('[data-global-year]')?.value || defaultYear);
+        window.location.href = match.url;
+      }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      const year = window.localStorage.getItem('cbr-selected-year') || defaultYear;
+      syncYear(year);
+      applyYear(year);
+
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        select.addEventListener('change', function(event) {{
+          applyYear(event.target.value);
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-go]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          goSearch();
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-input]').forEach(function(input) {{
+        input.addEventListener('keydown', function(event) {{
+          if (event.key === 'Enter') {{
+            event.preventDefault();
+            goSearch();
+          }}
+        }});
+      }});
+    }});
+  }})();
+  "
+)
+
+peak_title <- if (nrow(all_time_peak) > 0) all_time_peak$TeamName[[1]] else "-"
+peak_note <- if (nrow(all_time_peak) > 0) {
+  paste0(
+    format(all_time_peak$peak_date[[1]], "%Y/%m/%d"),
+    "  レート ",
+    sprintf("%.1f", all_time_peak$peak_rating[[1]])
+  )
+} else {
+  "記録なし"
+}
+
+top_season_title <- if (nrow(top_season_record) > 0) top_season_record$TeamName[[1]] else "-"
+top_season_note <- if (nrow(top_season_record) > 0) {
+  paste0(
+    top_season_record$season_label[[1]],
+    "  終了時レート ",
+    sprintf("%.1f", top_season_record$display_rating[[1]])
+  )
+} else {
+  "記録なし"
+}
+
+top_upset_title <- if (nrow(top_upset) > 0) top_upset$underdog_name[[1]] else "-"
+top_upset_note <- if (nrow(top_upset) > 0) {
+  paste0(
+    format(top_upset$gamedate[[1]], "%Y/%m/%d"),
+    "  対 ",
+    top_upset$favorite_name[[1]],
+    "  勝率 ",
+    sprintf("%.1f%%", 100 * top_upset$underdog_win_prob[[1]])
+  )
+} else {
+  "記録なし"
+}
+
+tagList(
+  div(
+    class = "page-hero",
+    div(class = "page-kicker", "Historical Archive"),
+    div(
+      class = "hero-grid",
+      div(
+        h1(class = "hero-title", "歴史と記録"),
+        p(
+          class = "hero-subtitle",
+          "春秋シーズンの終了時点レート、大学別ピーク、番狂わせの大きい試合をまとめた履歴ビューです。現在の順位だけでなく、いつ誰が強かったかを年単位で追える構造にしています。"
+        ),
+        div(
+          class = "meta-pills",
+          div(class = "meta-pill", paste0("対象期間 ", format(coverage_start, "%Y/%m/%d"), " - ", format(coverage_end, "%Y/%m/%d"))),
+          div(class = "meta-pill", paste0("シーズン終点 ", nrow(season_ends), " 件")),
+          div(class = "meta-pill", paste0("大学 ", nrow(team_peaks), " 校"))
+        )
+      ),
+      div(
+        class = "stat-grid",
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "歴代ピーク"),
+          div(class = "stat-value", peak_title),
+          div(class = "stat-note", peak_note)
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "最強シーズン終点"),
+          div(class = "stat-value", top_season_title),
+          div(class = "stat-note", top_season_note)
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "最大アップセット"),
+          div(class = "stat-value", top_upset_title),
+          div(class = "stat-note", top_upset_note)
+        )
+      )
+    ),
+    div(
+      class = "control-bar",
+      div(
+        class = "control-block",
+        div(class = "control-label", "大学・リーグ検索"),
+        div(
+          class = "search-shell",
+          tags$input(
+            class = "search-input",
+            type = "search",
+            placeholder = "大学名またはリーグ名を入力",
+            list = "site-search-options",
+            `data-search-input` = "site"
+          ),
+          tags$button(class = "control-button", type = "button", `data-search-go` = "site", "移動")
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "表示年度"),
+        tags$select(
+          class = "year-select",
+          `data-global-year` = "site",
+          lapply(available_yrs, function(yr) tags$option(value = yr, as.character(yr)))
+        )
+      )
+    ),
+    div(
+      class = "year-focus-shell",
+      div(
+        class = "year-focus-header",
+        div(class = "control-label", "年度別サマリー"),
+        div(class = "year-focus-year", `data-history-bind` = "year-label", paste0(default_focus$yr[[1]], "年"))
+      ),
+      div(
+        class = "year-focus-grid",
+        div(
+          class = "year-focus-card",
+          div(class = "year-focus-label", "春の終点首位"),
+          div(class = "year-focus-value", `data-history-bind` = "spring-title", default_focus$spring_title[[1]]),
+          div(class = "year-focus-note", `data-history-bind` = "spring-note", default_focus$spring_note[[1]])
+        ),
+        div(
+          class = "year-focus-card",
+          div(class = "year-focus-label", "秋の終点首位"),
+          div(class = "year-focus-value", `data-history-bind` = "fall-title", default_focus$fall_title[[1]]),
+          div(class = "year-focus-note", `data-history-bind` = "fall-note", default_focus$fall_note[[1]])
+        ),
+        div(
+          class = "year-focus-card",
+          div(class = "year-focus-label", "最大アップセット"),
+          div(class = "year-focus-value", `data-history-bind` = "upset-title", default_focus$upset_title[[1]]),
+          div(class = "year-focus-note", `data-history-bind` = "upset-note", default_focus$upset_note[[1]])
+        )
+      ),
+      div(class = "record-note", "年度選択は下のシーズン首位一覧、シーズン終点ランキング、アップセット一覧に反映されます。大学別ピークは全期間固定です。")
+    ),
+    div(
+      class = "anchor-nav",
+      tags$a(href = "#season-leaders", class = "anchor-link", "シーズン首位"),
+      tags$a(href = "#season-rankings", class = "anchor-link", "シーズン終点"),
+      tags$a(href = "#team-peaks", class = "anchor-link", "大学別ピーク"),
+      tags$a(href = "#upsets", class = "anchor-link", "アップセット")
+    ),
+    search_options,
+    tags$script(HTML(hero_script))
+  ),
+  div(
+    class = "route-grid",
+    tags$a(
+      href = "index.html",
+      class = "route-card",
+      div(class = "route-label", "Current View"),
+      div(class = "route-title", "現在のランキングへ"),
+      div(class = "route-copy", "最新順位、直近試合、現在のリーグ平均を確認する入口です。"),
+      div(class = "route-link", "現在地を見る →")
+    ),
+    tags$a(
+      href = "league/tokyo6.html",
+      class = "route-card",
+      div(class = "route-label", "League View"),
+      div(class = "route-title", "東京六大学の詳細へ"),
+      div(class = "route-copy", "リーグ内の推移グラフと年度別の試合一覧に移動します。"),
+      div(class = "route-link", "リーグ詳細へ →")
+    ),
+    tags$a(
+      href = "methodology.html",
+      class = "route-card",
+      div(class = "route-label", "Method"),
+      div(class = "route-title", "計算方法を確認する"),
+      div(class = "route-copy", "歴代比較に使っているレーティングの前提と指標の意味を整理しています。"),
+      div(class = "route-link", "方法を見る →")
+    )
+  )
+)
+```
+
+## シーズン首位一覧 {#season-leaders}
+
+<div class="copy-shell">
+  <p class="section-lead">各シーズン終了日時点で最も高いレートだった大学です。表示年度を切り替えると、その年に「終点で最も強かった大学」を春秋ごとに追えます。</p>
+  <p class="record-note">同率首位がある場合は複数行で表示します。</p>
+</div>
+
+```{r season-leaders-table}
+div(
+  class = "table-shell",
+  reactable(
+    season_leaders,
+    filterable = TRUE,
+    defaultPageSize = 12,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(12, 24, 60),
+    highlight = TRUE,
+    elementId = "history-leaders-table",
+    columns = list(
+      yr = colDef(show = FALSE, filterable = TRUE),
+      year = colDef(name = "年", width = 72, align = "center", filterable = FALSE),
+      season = colDef(name = "季", width = 60, align = "center", filterable = FALSE),
+      season_label = colDef(show = FALSE),
+      TeamName = colDef(
+        name = "大学",
+        minWidth = 180,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- season_leaders[ri, ]
+          team_link_cell(v, row$team, row$c1)
+        }
+      ),
+      LeagueName = colDef(
+        name = "リーグ",
+        filterable = FALSE,
+        cell = function(v) {
+          tags$a(href = league_url(v), class = "team-link-inline", v)
+        }
+      ),
+      display_rating = colDef(
+        name = "終了時レート",
+        width = 108,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      end_date = colDef(
+        name = "終了日",
+        width = 118,
+        align = "right",
+        format = colFormat(date = TRUE, locales = "ja-JP"),
+        filterable = FALSE
+      ),
+      team = colDef(show = FALSE),
+      c1 = colDef(show = FALSE)
+    )
+  )
+)
+```
+
+## シーズン終点ランキング {#season-rankings}
+
+<div class="copy-shell">
+  <p class="section-lead">春秋シーズンの終点を順位順で並べた一覧です。表示年度を切り替えると、その年のシーズン終点における勢力図を大学別に比較できます。</p>
+</div>
+
+```{r season-rankings-table}
+div(
+  class = "table-shell",
+  reactable(
+    season_rankings,
+    filterable = TRUE,
+    defaultPageSize = 12,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(12, 24, 60),
+    highlight = TRUE,
+    elementId = "history-season-table",
+    columns = list(
+      yr = colDef(show = FALSE, filterable = TRUE),
+      season_label = colDef(name = "シーズン", width = 110, filterable = FALSE),
+      season_rank = colDef(
+        name = "順位",
+        width = 60,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rank-number", v)
+      ),
+      TeamName = colDef(
+        name = "大学",
+        minWidth = 180,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- season_rankings[ri, ]
+          team_link_cell(v, row$team, row$c1)
+        }
+      ),
+      LeagueName = colDef(
+        name = "リーグ",
+        filterable = FALSE,
+        cell = function(v) {
+          tags$a(href = league_url(v), class = "team-link-inline", v)
+        }
+      ),
+      display_rating = colDef(
+        name = "終了時レート",
+        width = 108,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      end_date = colDef(
+        name = "終了日",
+        width = 118,
+        align = "right",
+        format = colFormat(date = TRUE, locales = "ja-JP"),
+        filterable = FALSE
+      ),
+      team = colDef(show = FALSE),
+      c1 = colDef(show = FALSE)
+    )
+  )
+)
+```
+
+## 大学別ピーク {#team-peaks}
+
+<div class="copy-shell">
+  <p class="section-lead">各大学について、履歴全体のピーク値と、シーズン終点ベースの最高到達シーズンを並べています。今の強さと過去の天井を見比べるための全期間ビューです。</p>
+</div>
+
+```{r team-peaks-table}
+div(
+  class = "table-shell",
+  reactable(
+    team_peaks,
+    pagination = FALSE,
+    highlight = TRUE,
+    columns = list(
+      TeamName = colDef(
+        name = "大学",
+        minWidth = 190,
+        cell = function(v, ri) {
+          row <- team_peaks[ri, ]
+          team_link_cell(v, row$team, row$c1)
+        }
+      ),
+      LeagueName = colDef(
+        name = "リーグ",
+        cell = function(v) {
+          tags$a(href = league_url(v), class = "team-link-inline", v)
+        }
+      ),
+      peak_rating = colDef(
+        name = "歴代ピーク",
+        width = 98,
+        align = "right",
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      peak_date = colDef(
+        name = "到達日",
+        width = 118,
+        align = "right",
+        format = colFormat(date = TRUE, locales = "ja-JP")
+      ),
+      peak_season = colDef(name = "最高シーズン", minWidth = 120),
+      peak_season_rating = colDef(
+        name = "終点レート",
+        width = 96,
+        align = "right",
+        cell = function(v) tags$span(
+          class = "rating-number",
+          ifelse(is.na(v), "-", sprintf("%.1f", v))
+        )
+      ),
+      current_rating = colDef(
+        name = "現在値",
+        width = 86,
+        align = "right",
+        cell = function(v) tags$span(
+          class = "rating-number",
+          ifelse(is.na(v), "-", sprintf("%.1f", v))
+        )
+      ),
+      current_rank = colDef(name = "現在順位", width = 86, align = "center"),
+      team = colDef(show = FALSE),
+      c1 = colDef(show = FALSE)
+    )
+  )
+)
+```
+
+## アップセット一覧 {#upsets}
+
+<div class="copy-shell">
+  <p class="section-lead">試合前に低く見積もられていた側が勝った試合だけを抽出し、想定勝率の低さ順に並べています。表示年度を切り替えると、その年の番狂わせ候補を絞り込めます。</p>
+  <p class="record-note">表示している変動幅は、各試合のレート更新量を表示用スケールへ換算した値です。</p>
+</div>
+
+```{r upset-table}
+div(
+  class = "table-shell",
+  reactable(
+    upset_games,
+    filterable = TRUE,
+    defaultPageSize = 10,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(10, 20, 40),
+    highlight = TRUE,
+    elementId = "history-upsets-table",
+    columns = list(
+      yr = colDef(show = FALSE, filterable = TRUE),
+      gamedate = colDef(
+        name = "日時",
+        width = 112,
+        align = "right",
+        format = colFormat(date = TRUE, locales = "ja-JP"),
+        filterable = FALSE
+      ),
+      gametype = colDef(name = "試合種別", minWidth = 120, filterable = FALSE),
+      underdog_name = colDef(
+        name = "勝った側",
+        minWidth = 180,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- upset_games[ri, ]
+          team_link_cell(v, row$underdog, row$underdog_c1)
+        }
+      ),
+      favorite_name = colDef(
+        name = "相手",
+        minWidth = 180,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- upset_games[ri, ]
+          team_link_cell(v, row$favorite, row$favorite_c1)
+        }
+      ),
+      scoreline = colDef(name = "スコア", width = 86, align = "center", filterable = FALSE),
+      underdog_win_prob = colDef(
+        name = "事前勝率",
+        width = 96,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-badge", sprintf("%.1f%%", 100 * v))
+      ),
+      rating_gap = colDef(
+        name = "事前差",
+        width = 86,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      delta_disp = colDef(
+        name = "変動幅",
+        width = 86,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      underdog = colDef(show = FALSE),
+      favorite = colDef(show = FALSE),
+      underdog_c1 = colDef(show = FALSE),
+      favorite_c1 = colDef(show = FALSE)
+    )
+  )
+)
+```
+
+<div class="back-links">
+  <a href="index.html" class="back-link">&#8592; 現在のランキングに戻る</a>
+  <a href="methodology.html" class="back-link">&#8594; 計算方法の詳細</a>
+</div>

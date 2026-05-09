@@ -10,7 +10,9 @@ website:
   navbar:
     left:
       - href: index.qmd
-        text: ランキング
+        text: 現在の順位
+      - href: history.qmd
+        text: 歴史と記録
       - href: methodology.qmd
         text: 計算方法
     right:
