@@ -1,0 +1,956 @@
+---
+title: "大学比較"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+library(tidyverse)
+library(htmltools)
+library(lubridate)
+
+final_ratings <- read_csv("../data_out/ratings/final_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+rating_hist <- read_csv("../data_out/ratings/rating_history.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(gamedate = as.Date(gamedate))
+
+teams_info <- readxl::read_excel("../data_out/teamdata.xlsx") |>
+  mutate(
+    c1 = paste0("#", ColorCode1),
+    c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
+    c3 = paste0(
+      "#",
+      if_else(
+        is.na(ColorCode3),
+        if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+        ColorCode3
+      )
+    )
+  )
+
+TEAM_SLUG <- c(
+  "東大" = "todai",
+  "明治" = "meiji",
+  "慶應" = "keio",
+  "早稲田" = "waseda",
+  "立教" = "rikkyo",
+  "法政" = "hosei"
+)
+
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
+team_url <- function(team, prefix = "") {
+  slug <- TEAM_SLUG[[team]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "university/", slug, ".html")
+}
+
+league_url <- function(league, prefix = "") {
+  slug <- LEAGUE_SLUG[[league]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "league/", slug, ".html")
+}
+
+analysis_games <- game_results |>
+  filter(gamedate <= Sys.Date())
+
+available_years <- sort(unique(year(analysis_games$gamedate)), decreasing = TRUE)
+default_year <- if (length(available_years) > 0) {
+  as.character(available_years[[1]])
+} else {
+  "all"
+}
+
+coverage_start <- min(analysis_games$gamedate)
+coverage_end <- max(analysis_games$gamedate)
+
+current_teams <- final_ratings |>
+  arrange(rank) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  transmute(
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    current_rank = rank,
+    current_rating = round(display_rating, 1)
+  )
+
+if (nrow(current_teams) == 0) {
+  stop("比較対象となる大学データがありません。")
+}
+
+default_team_a <- current_teams$team[[1]]
+default_team_b <- if (nrow(current_teams) >= 2) {
+  current_teams$team[[2]]
+} else {
+  current_teams$team[[1]]
+}
+
+team_peaks <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  group_by(team) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+season_end_dates <- analysis_games |>
+  group_by(yr_val = year(gamedate), season) |>
+  summarise(end_date = max(gamedate), .groups = "drop") |>
+  arrange(desc(yr_val), desc(season == "秋"))
+
+season_snapshots <- season_end_dates |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    snapshot = map(end_date, function(d) {
+      rating_hist |>
+        filter(date <= d) |>
+        group_by(team) |>
+        slice_tail(n = 1) |>
+        ungroup() |>
+        mutate(season_rank = rank(desc(display_rating), ties.method = "min"))
+    })
+  ) |>
+  unnest(snapshot)
+
+best_season_end <- season_snapshots |>
+  arrange(team, desc(display_rating), desc(end_date)) |>
+  group_by(team) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    team,
+    best_season_label = season_label,
+    best_season_rating = round(display_rating, 1),
+    best_season_rank = season_rank,
+    best_season_date = end_date
+  )
+
+best_spring_end <- season_snapshots |>
+  filter(season == "春") |>
+  arrange(team, desc(display_rating), desc(end_date)) |>
+  group_by(team) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    team,
+    best_spring_label = season_label,
+    best_spring_rating = round(display_rating, 1),
+    best_spring_rank = season_rank,
+    best_spring_date = end_date
+  )
+
+best_fall_end <- season_snapshots |>
+  filter(season == "秋") |>
+  arrange(team, desc(display_rating), desc(end_date)) |>
+  group_by(team) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    team,
+    best_fall_label = season_label,
+    best_fall_rating = round(display_rating, 1),
+    best_fall_rank = season_rank,
+    best_fall_date = end_date
+  )
+
+season_titles <- season_snapshots |>
+  filter(season_rank == 1) |>
+  group_by(team) |>
+  summarise(
+    season_titles = n(),
+    title_years = n_distinct(yr_val),
+    latest_title_year = max(yr_val),
+    .groups = "drop"
+  )
+
+team_overview <- current_teams |>
+  left_join(team_peaks, by = "team") |>
+  left_join(best_season_end, by = "team") |>
+  left_join(best_spring_end, by = "team") |>
+  left_join(best_fall_end, by = "team") |>
+  left_join(season_titles, by = "team") |>
+  mutate(
+    season_titles = coalesce(season_titles, 0L),
+    title_years = coalesce(title_years, 0L)
+  )
+
+team_year_peaks <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  mutate(yr = as.character(year(date))) |>
+  group_by(yr, team) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    yr,
+    team,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+season_year_summary <- season_snapshots |>
+  transmute(
+    yr = as.character(yr_val),
+    team,
+    season_slot = if_else(season == "春", "spring", "fall"),
+    end_rank = season_rank,
+    end_rating = round(display_rating, 1),
+    end_date
+  ) |>
+  pivot_wider(
+    names_from = season_slot,
+    values_from = c(end_rank, end_rating, end_date),
+    names_glue = "{season_slot}_{.value}"
+  )
+
+team_year_stats <- full_join(
+  team_year_peaks,
+  season_year_summary,
+  by = c("yr", "team")
+)
+
+h2h_base <- analysis_games |>
+  mutate(
+    yr = as.character(year(gamedate)),
+    pair_a = pmin(team1, team2),
+    pair_b = pmax(team1, team2),
+    pair_a_score = if_else(team1 == pair_a, score1, score2),
+    pair_b_score = if_else(team1 == pair_a, score2, score1),
+    winner = case_when(
+      score1 > score2 ~ team1,
+      score2 > score1 ~ team2,
+      TRUE ~ NA_character_
+    ),
+    winner_prob = case_when(
+      score1 > score2 ~ E1,
+      score2 > score1 ~ 1 - E1,
+      TRUE ~ NA_real_
+    )
+  )
+
+h2h_year_summary <- h2h_base |>
+  group_by(yr, pair_a, pair_b) |>
+  summarise(
+    games = n(),
+    pair_a_wins = sum(winner == pair_a, na.rm = TRUE),
+    pair_b_wins = sum(winner == pair_b, na.rm = TRUE),
+    draws = sum(is.na(winner)),
+    .groups = "drop"
+  )
+
+h2h_year_latest <- h2h_base |>
+  arrange(desc(gamedate), desc(abs(pair_a_score - pair_b_score))) |>
+  group_by(yr, pair_a, pair_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    pair_a,
+    pair_b,
+    latest_date = gamedate,
+    latest_pair_a_score = pair_a_score,
+    latest_pair_b_score = pair_b_score,
+    latest_note = case_when(
+      pair_a_score > pair_b_score ~ paste0(pair_a, " 勝利"),
+      pair_b_score > pair_a_score ~ paste0(pair_b, " 勝利"),
+      TRUE ~ "引き分け"
+    )
+  )
+
+h2h_year_upset <- h2h_base |>
+  filter(!is.na(winner), winner_prob < 0.5) |>
+  arrange(winner_prob, desc(abs(r1_before - r2_before)), desc(gamedate)) |>
+  group_by(yr, pair_a, pair_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    pair_a,
+    pair_b,
+    upset_date = gamedate,
+    upset_winner = winner,
+    upset_prob = winner_prob,
+    upset_pair_a_score = pair_a_score,
+    upset_pair_b_score = pair_b_score
+  )
+
+h2h_all_summary <- h2h_base |>
+  group_by(pair_a, pair_b) |>
+  summarise(
+    year_count = n_distinct(yr),
+    games = n(),
+    pair_a_wins = sum(winner == pair_a, na.rm = TRUE),
+    pair_b_wins = sum(winner == pair_b, na.rm = TRUE),
+    draws = sum(is.na(winner)),
+    .groups = "drop"
+  )
+
+h2h_all_latest <- h2h_base |>
+  arrange(desc(gamedate), desc(abs(pair_a_score - pair_b_score))) |>
+  group_by(pair_a, pair_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    pair_a,
+    pair_b,
+    latest_date = gamedate,
+    latest_pair_a_score = pair_a_score,
+    latest_pair_b_score = pair_b_score,
+    latest_note = case_when(
+      pair_a_score > pair_b_score ~ paste0(pair_a, " 勝利"),
+      pair_b_score > pair_a_score ~ paste0(pair_b, " 勝利"),
+      TRUE ~ "引き分け"
+    )
+  )
+
+h2h_all_upset <- h2h_base |>
+  filter(!is.na(winner), winner_prob < 0.5) |>
+  arrange(winner_prob, desc(abs(r1_before - r2_before)), desc(gamedate)) |>
+  group_by(pair_a, pair_b) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    pair_a,
+    pair_b,
+    upset_date = gamedate,
+    upset_winner = winner,
+    upset_prob = winner_prob,
+    upset_pair_a_score = pair_a_score,
+    upset_pair_b_score = pair_b_score
+  )
+
+h2h_yearly <- h2h_year_summary |>
+  left_join(h2h_year_latest, by = c("yr", "pair_a", "pair_b")) |>
+  left_join(h2h_year_upset, by = c("yr", "pair_a", "pair_b"))
+
+h2h_all <- h2h_all_summary |>
+  left_join(h2h_all_latest, by = c("pair_a", "pair_b")) |>
+  left_join(h2h_all_upset, by = c("pair_a", "pair_b"))
+
+team_entries <- current_teams |>
+  transmute(
+    team,
+    name = TeamName,
+    league = LeagueName,
+    color = c1,
+    current_rank,
+    current_rating,
+    url = map_chr(team, team_url),
+    league_url = map_chr(LeagueName, league_url)
+  )
+
+team_entries_json <- jsonlite::toJSON(team_entries, dataframe = "rows", auto_unbox = TRUE, na = "null")
+team_overview_json <- jsonlite::toJSON(team_overview, dataframe = "rows", auto_unbox = TRUE, na = "null")
+team_year_json <- jsonlite::toJSON(team_year_stats, dataframe = "rows", auto_unbox = TRUE, na = "null")
+h2h_year_json <- jsonlite::toJSON(h2h_yearly, dataframe = "rows", auto_unbox = TRUE, na = "null")
+h2h_all_json <- jsonlite::toJSON(h2h_all, dataframe = "rows", auto_unbox = TRUE, na = "null")
+available_years_json <- jsonlite::toJSON(as.character(available_years), auto_unbox = FALSE)
+```
+
+```{r compare-hero}
+compare_script <- paste(
+  "(function () {",
+  paste0("const teams = ", team_entries_json, ";"),
+  paste0("const overviewRows = ", team_overview_json, ";"),
+  paste0("const yearRows = ", team_year_json, ";"),
+  paste0("const h2hYearRows = ", h2h_year_json, ";"),
+  paste0("const h2hAllRows = ", h2h_all_json, ";"),
+  paste0("const availableYears = ", available_years_json, ";"),
+  paste0("const defaultTeamA = '", default_team_a, "';"),
+  paste0("const defaultTeamB = '", default_team_b, "';"),
+  paste0("const defaultYear = '", default_year, "';"),
+  "const teamMap = new Map(teams.map(function (item) { return [item.team, item]; }));",
+  "const overviewMap = new Map(overviewRows.map(function (item) { return [item.team, item]; }));",
+  "const yearMap = new Map(yearRows.map(function (item) { return [item.team + '|' + item.yr, item]; }));",
+  "function pairKey(a, b) {",
+  "  return [a, b].sort().join('|');",
+  "}",
+  "const h2hYearMap = new Map(h2hYearRows.map(function (item) { return [pairKey(item.pair_a, item.pair_b) + '|' + item.yr, item]; }));",
+  "const h2hAllMap = new Map(h2hAllRows.map(function (item) { return [pairKey(item.pair_a, item.pair_b), item]; }));",
+  "function escapeHtml(value) {",
+  "  return String(value == null ? '' : value)",
+  "    .replace(/&/g, '&amp;')",
+  "    .replace(/</g, '&lt;')",
+  "    .replace(/>/g, '&gt;')",
+  "    .replace(/\"/g, '&quot;')",
+  "    .replace(/'/g, '&#39;');",
+  "}",
+  "function fmtNumber(value) {",
+  "  return value == null || value === '' ? '—' : Number(value).toFixed(1);",
+  "}",
+  "function fmtInt(value) {",
+  "  return value == null || value === '' ? '—' : String(value);",
+  "}",
+  "function fmtPct(value) {",
+  "  return value == null || value === '' ? '—' : (Number(value) * 100).toFixed(1) + '%';",
+  "}",
+  "function shortDate(value) {",
+  "  if (!value) return '—';",
+  "  const text = String(value);",
+  "  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) {",
+  "    return text.slice(5).replace('-', '/');",
+  "  }",
+  "  return text;",
+  "}",
+  "function longDate(value) {",
+  "  if (!value) return '—';",
+  "  const text = String(value);",
+  "  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) {",
+  "    return text.replace(/-/g, '/');",
+  "  }",
+  "  return text;",
+  "}",
+  "function buildTeamLink(teamId, label) {",
+  "  const team = teamMap.get(teamId);",
+  "  if (!team || !team.url || team.url === '#') {",
+  "    return escapeHtml(label || teamId || '—');",
+  "  }",
+  "  return '<a href=\"' + escapeHtml(team.url) + '\" class=\"team-link-inline\" style=\"color:' + escapeHtml(team.color || '#18212b') + ';\">' + escapeHtml(label || team.name) + '</a>';",
+  "}",
+  "function buildMetricItem(label, value, note) {",
+  "  return '' +",
+  "    '<div class=\"compare-team-metric\">' +",
+  "      '<div class=\"compare-team-metric-label\">' + escapeHtml(label) + '</div>' +",
+  "      '<div class=\"compare-team-metric-value\">' + value + '</div>' +",
+  "      '<div class=\"compare-team-metric-note\">' + escapeHtml(note || '') + '</div>' +",
+  "    '</div>';",
+  "}",
+  "function buildMiniValue(primary, note) {",
+  "  return '<div class=\"mini-stack\"><span class=\"rating-number\">' + escapeHtml(primary) + '</span><span class=\"rating-badge\">' + escapeHtml(note || '') + '</span></div>';",
+  "}",
+  "function getOverview(teamId) {",
+  "  return overviewMap.get(teamId) || null;",
+  "}",
+  "function getYearStats(teamId, year) {",
+  "  if (year === 'all') return null;",
+  "  return yearMap.get(teamId + '|' + year) || null;",
+  "}",
+  "function getH2HYear(teamA, teamB, year) {",
+  "  if (year === 'all') return null;",
+  "  return h2hYearMap.get(pairKey(teamA, teamB) + '|' + year) || null;",
+  "}",
+  "function getH2HAll(teamA, teamB) {",
+  "  return h2hAllMap.get(pairKey(teamA, teamB)) || null;",
+  "}",
+  "function orientRecord(record, teamA, teamB) {",
+  "  if (!record) return null;",
+  "  const aIsPairA = record.pair_a === teamA;",
+  "  return {",
+  "    games: record.games,",
+  "    year_count: record.year_count,",
+  "    winsA: aIsPairA ? record.pair_a_wins : record.pair_b_wins,",
+  "    winsB: aIsPairA ? record.pair_b_wins : record.pair_a_wins,",
+  "    draws: record.draws,",
+  "    latest_date: record.latest_date,",
+  "    latest_score_a: aIsPairA ? record.latest_pair_a_score : record.latest_pair_b_score,",
+  "    latest_score_b: aIsPairA ? record.latest_pair_b_score : record.latest_pair_a_score,",
+  "    latest_note: record.latest_note,",
+  "    upset_date: record.upset_date,",
+  "    upset_winner: record.upset_winner,",
+  "    upset_prob: record.upset_prob,",
+  "    upset_score_a: aIsPairA ? record.upset_pair_a_score : record.upset_pair_b_score,",
+  "    upset_score_b: aIsPairA ? record.upset_pair_b_score : record.upset_pair_a_score",
+  "  };",
+  "}",
+  "function ensureDistinctPair(teamA, teamB) {",
+  "  let nextA = teamMap.has(teamA) ? teamA : defaultTeamA;",
+  "  let nextB = teamMap.has(teamB) ? teamB : defaultTeamB;",
+  "  if (nextA === nextB) {",
+  "    const fallback = teams.find(function (item) { return item.team !== nextA; });",
+  "    if (fallback) {",
+  "      nextB = fallback.team;",
+  "    }",
+  "  }",
+  "  return { teamA: nextA, teamB: nextB };",
+  "}",
+  "function syncYearLinks(value) {",
+  "  document.querySelectorAll('a[href]').forEach(function (link) {",
+  "    const rawHref = link.getAttribute('href');",
+  "    if (!rawHref || rawHref.charAt(0) === '#') return;",
+  "    if (/^(mailto:|tel:|javascript:)/i.test(rawHref)) return;",
+  "    const baseHref = link.dataset.yearHrefBase || rawHref;",
+  "    if (!link.dataset.yearHrefBase) {",
+  "      link.dataset.yearHrefBase = rawHref;",
+  "    }",
+  "    let url;",
+  "    try {",
+  "      url = new URL(baseHref, window.location.href);",
+  "    } catch (error) {",
+  "      return;",
+  "    }",
+  "    if (url.origin !== window.location.origin) return;",
+  "    if (!/\\.html$/i.test(url.pathname)) return;",
+  "    url.searchParams.set('year', value);",
+  "    link.setAttribute('href', url.toString());",
+  "  });",
+  "}",
+  "function updateChrome(teamA, teamB, year) {",
+  "  const yearLabel = year === 'all' ? '全期間' : year + '年';",
+  "  document.querySelectorAll('[data-compare-bind=\"year-label\"]').forEach(function (node) {",
+  "    node.textContent = yearLabel;",
+  "  });",
+  "  document.querySelectorAll('[data-compare-bind=\"team-a-name\"]').forEach(function (node) {",
+  "    node.textContent = teamMap.get(teamA).name;",
+  "  });",
+  "  document.querySelectorAll('[data-compare-bind=\"team-b-name\"]').forEach(function (node) {",
+  "    node.textContent = teamMap.get(teamB).name;",
+  "  });",
+  "  document.querySelectorAll('[data-compare-team-link=\"a\"]').forEach(function (link) {",
+  "    const url = new URL(teamMap.get(teamA).url, window.location.href);",
+  "    url.searchParams.set('year', year);",
+  "    link.href = url.toString();",
+  "    link.textContent = teamMap.get(teamA).name + ' 詳細';",
+  "  });",
+  "  document.querySelectorAll('[data-compare-team-link=\"b\"]').forEach(function (link) {",
+  "    const url = new URL(teamMap.get(teamB).url, window.location.href);",
+  "    url.searchParams.set('year', year);",
+  "    link.href = url.toString();",
+  "    link.textContent = teamMap.get(teamB).name + ' 詳細';",
+  "  });",
+  "}",
+  "function renderOverview(teamA, teamB, year) {",
+  "  const target = document.querySelector('[data-compare-overview]');",
+  "  if (!target) return;",
+  "  const a = getOverview(teamA);",
+  "  const b = getOverview(teamB);",
+  "  const yearLabel = year === 'all' ? '全期間' : year + '年';",
+  "  const currentGap = a && b && a.current_rating != null && b.current_rating != null ? (Number(a.current_rating) - Number(b.current_rating)).toFixed(1) : '—';",
+  "  const peakGap = a && b && a.peak_rating != null && b.peak_rating != null ? (Number(a.peak_rating) - Number(b.peak_rating)).toFixed(1) : '—';",
+  "  function teamPanel(teamId, overview, sideLabel) {",
+  "    const team = teamMap.get(teamId);",
+  "    return '' +",
+  "      '<article class=\"compare-team-panel\">' +",
+  "        '<div class=\"compare-team-head\">' +",
+  "          '<div class=\"compare-team-kicker\">' + escapeHtml(sideLabel) + '</div>' +",
+  "          '<div class=\"compare-team-title-row\">' +",
+  "            '<div class=\"compare-team-title\">' + buildTeamLink(teamId, team.name) + '</div>' +",
+  "            '<span class=\"focus-chip\">' + escapeHtml(team.league || '所属不明') + '</span>' +",
+  "          '</div>' +",
+  "        '</div>' +",
+  "        '<div class=\"compare-team-metrics-grid\">' +",
+  "          buildMetricItem('現在順位', fmtInt(overview.current_rank), '現在の全国順位') +",
+  "          buildMetricItem('現在レート', fmtNumber(overview.current_rating), '最新更新時点') +",
+  "          buildMetricItem('歴代ピーク', fmtNumber(overview.peak_rating), longDate(overview.peak_date)) +",
+  "          buildMetricItem('最高シーズン終点', fmtNumber(overview.best_season_rating), (overview.best_season_label || '記録なし') + (overview.best_season_rank != null ? ' / #' + overview.best_season_rank : '')) +",
+  "          buildMetricItem('春の最高終点', fmtNumber(overview.best_spring_rating), (overview.best_spring_label || '記録なし') + (overview.best_spring_rank != null ? ' / #' + overview.best_spring_rank : '')) +",
+  "          buildMetricItem('秋の最高終点', fmtNumber(overview.best_fall_rating), (overview.best_fall_label || '記録なし') + (overview.best_fall_rank != null ? ' / #' + overview.best_fall_rank : '')) +",
+  "        '</div>' +",
+  "        '<div class=\"directory-link-row\">' +",
+  "          '<a class=\"directory-link\" href=\"' + escapeHtml(team.url) + '?year=' + encodeURIComponent(year) + '\">大学詳細へ</a>' +",
+  "          '<a class=\"directory-link\" href=\"' + escapeHtml(team.league_url) + '?year=' + encodeURIComponent(year) + '\">リーグ詳細へ</a>' +",
+  "        '</div>' +",
+  "      '</article>';",
+  "  }",
+  "  target.innerHTML = '' +",
+  "    '<div class=\"compare-overview-grid\">' +",
+  "      teamPanel(teamA, a, 'Team A') +",
+  "      '<article class=\"compare-versus-panel\">' +",
+  "        '<div class=\"compare-versus-kicker\">Selected Lens</div>' +",
+  "        '<div class=\"compare-versus-title\"><span data-compare-bind=\"team-a-name\"></span> vs <span data-compare-bind=\"team-b-name\"></span></div>' +",
+  "        '<div class=\"compare-versus-year\">' + escapeHtml(yearLabel) + '</div>' +",
+  "        '<div class=\"compare-versus-metric-grid\">' +",
+  "          buildMetricItem('現在差', currentGap, 'Team A - Team B') +",
+  "          buildMetricItem('歴代ピーク差', peakGap, 'Team A - Team B') +",
+  "          buildMetricItem('終点首位回数', fmtInt(a.season_titles) + ' - ' + fmtInt(b.season_titles), '春秋シーズン終点での首位回数') +",
+  "        '</div>' +",
+  "        '<p class=\"compare-versus-copy\">現在の強さと歴代の天井を同じ2校で固定し、選択年度だけ切り替えながら差分を確認できます。</p>' +",
+  "      '</article>' +",
+  "      teamPanel(teamB, b, 'Team B') +",
+  "    '</div>';",
+  "}",
+  "function renderMetrics(teamA, teamB, year) {",
+  "  const target = document.querySelector('[data-compare-metrics]');",
+  "  if (!target) return;",
+  "  const teamAInfo = teamMap.get(teamA);",
+  "  const teamBInfo = teamMap.get(teamB);",
+  "  const overviewA = getOverview(teamA);",
+  "  const overviewB = getOverview(teamB);",
+  "  const statsA = getYearStats(teamA, year);",
+  "  const statsB = getYearStats(teamB, year);",
+  "  const title = year === 'all' ? '全期間の比較軸' : year + '年の比較軸';",
+  "  function metricCell(primary, note, color) {",
+  "    return '<td class=\"compare-metric-cell\"><div class=\"compare-metric-value\"' + (color ? ' style=\"color:' + escapeHtml(color) + ';\"' : '') + '>' + escapeHtml(primary) + '</div><div class=\"compare-metric-note\">' + escapeHtml(note || '') + '</div></td>';",
+  "  }",
+  "  function peakValue(stats, overview) {",
+  "    if (year === 'all') {",
+  "      return {",
+  "        primary: fmtNumber(overview.peak_rating),",
+  "        note: longDate(overview.peak_date)",
+  "      };",
+  "    }",
+  "    if (!stats) return { primary: '—', note: '該当データなし' };",
+  "    return {",
+  "      primary: fmtNumber(stats.peak_rating),",
+  "      note: shortDate(stats.peak_date) + ' の年間ピーク'",
+  "    };",
+  "  }",
+  "  function seasonValue(stats, ratingField, rankField, dateField, fallbackText) {",
+  "    if (year === 'all') {",
+  "      return { primary: '—', note: fallbackText };",
+  "    }",
+  "    if (!stats || stats[ratingField] == null) return { primary: '—', note: '該当シーズンなし' };",
+  "    return {",
+  "      primary: fmtNumber(stats[ratingField]),",
+  "      note: '#' + fmtInt(stats[rankField]) + ' / ' + shortDate(stats[dateField])",
+  "    };",
+  "  }",
+  "  function allSeasonValue(overview, prefix) {",
+  "    const ratingField = prefix === 'spring' ? 'best_spring_rating' : 'best_fall_rating';",
+  "    const rankField = prefix === 'spring' ? 'best_spring_rank' : 'best_fall_rank';",
+  "    const labelField = prefix === 'spring' ? 'best_spring_label' : 'best_fall_label';",
+  "    if (!overview || overview[ratingField] == null) return { primary: '—', note: '該当シーズンなし' };",
+  "    return {",
+  "      primary: fmtNumber(overview[ratingField]),",
+  "      note: (overview[labelField] || '') + (overview[rankField] != null ? ' / #' + overview[rankField] : '')",
+  "    };",
+  "  }",
+  "  const rows = [];",
+  "  rows.push({ label: '所属リーグ', a: { primary: teamAInfo.league, note: '現在所属' }, b: { primary: teamBInfo.league, note: '現在所属' } });",
+  "  rows.push({ label: '現在順位', a: { primary: fmtInt(overviewA.current_rank), note: '全国順位' }, b: { primary: fmtInt(overviewB.current_rank), note: '全国順位' } });",
+  "  rows.push({ label: '現在レート', a: { primary: fmtNumber(overviewA.current_rating), note: '最新更新時点' }, b: { primary: fmtNumber(overviewB.current_rating), note: '最新更新時点' } });",
+  "  rows.push({ label: '歴代ピーク', a: { primary: fmtNumber(overviewA.peak_rating), note: longDate(overviewA.peak_date) }, b: { primary: fmtNumber(overviewB.peak_rating), note: longDate(overviewB.peak_date) } });",
+  "  rows.push({ label: '最高シーズン終点', a: { primary: fmtNumber(overviewA.best_season_rating), note: (overviewA.best_season_label || '記録なし') + (overviewA.best_season_rank != null ? ' / #' + overviewA.best_season_rank : '') }, b: { primary: fmtNumber(overviewB.best_season_rating), note: (overviewB.best_season_label || '記録なし') + (overviewB.best_season_rank != null ? ' / #' + overviewB.best_season_rank : '') } });",
+  "  rows.push({ label: '終点首位回数', a: { primary: fmtInt(overviewA.season_titles), note: '首位年数 ' + fmtInt(overviewA.title_years) }, b: { primary: fmtInt(overviewB.season_titles), note: '首位年数 ' + fmtInt(overviewB.title_years) } });",
+  "  if (year === 'all') {",
+  "    rows.push({ label: '全期間ピーク', a: peakValue(statsA, overviewA), b: peakValue(statsB, overviewB) });",
+  "    rows.push({ label: '最高春終点', a: allSeasonValue(overviewA, 'spring'), b: allSeasonValue(overviewB, 'spring') });",
+  "    rows.push({ label: '最高秋終点', a: allSeasonValue(overviewA, 'fall'), b: allSeasonValue(overviewB, 'fall') });",
+  "  } else {",
+  "    rows.push({ label: year + '年ピーク', a: peakValue(statsA, overviewA), b: peakValue(statsB, overviewB) });",
+  "    rows.push({ label: year + '年春終点', a: seasonValue(statsA, 'spring_end_rating', 'spring_end_rank', 'spring_end_date', ''), b: seasonValue(statsB, 'spring_end_rating', 'spring_end_rank', 'spring_end_date', '') });",
+  "    rows.push({ label: year + '年秋終点', a: seasonValue(statsA, 'fall_end_rating', 'fall_end_rank', 'fall_end_date', ''), b: seasonValue(statsB, 'fall_end_rating', 'fall_end_rank', 'fall_end_date', '') });",
+  "  }",
+  "  target.innerHTML = '' +",
+  "    '<div class=\"compare-table-head\">' +",
+  "      '<div class=\"compare-table-title\">' + escapeHtml(title) + '</div>' +",
+  "      '<div class=\"compare-table-note\">同じ指標で2校を固定し、現在値と選択年度の差分を一列で見比べます。</div>' +",
+  "    '</div>' +",
+  "    '<div class=\"compare-table-region\">' +",
+  "      '<table class=\"compare-metric-table\">' +",
+  "        '<thead><tr><th>指標</th><th>' + escapeHtml(teamAInfo.name) + '</th><th>' + escapeHtml(teamBInfo.name) + '</th></tr></thead>' +",
+  "        '<tbody>' + rows.map(function (row) {",
+  "          return '<tr><th scope=\"row\">' + escapeHtml(row.label) + '</th>' + metricCell(row.a.primary, row.a.note, teamAInfo.color) + metricCell(row.b.primary, row.b.note, teamBInfo.color) + '</tr>';",
+  "        }).join('') + '</tbody>' +",
+  "      '</table>' +",
+  "    '</div>';",
+  "}",
+  "function renderHeadToHead(teamA, teamB, year) {",
+  "  const target = document.querySelector('[data-compare-h2h]');",
+  "  if (!target) return;",
+  "  const teamAInfo = teamMap.get(teamA);",
+  "  const teamBInfo = teamMap.get(teamB);",
+  "  const yearRecord = orientRecord(getH2HYear(teamA, teamB, year), teamA, teamB);",
+  "  const allRecord = orientRecord(getH2HAll(teamA, teamB), teamA, teamB);",
+  "  function h2hCard(label, title, value, note) {",
+  "    return '' +",
+  "      '<article class=\"compare-record-card\">' +",
+  "        '<div class=\"compare-record-label\">' + escapeHtml(label) + '</div>' +",
+  "        '<div class=\"compare-record-title\">' + escapeHtml(title) + '</div>' +",
+  "        '<div class=\"compare-record-value\">' + escapeHtml(value) + '</div>' +",
+  "        '<div class=\"compare-record-note\">' + escapeHtml(note || '') + '</div>' +",
+  "      '</article>';",
+  "  }",
+  "  let selectedCard;",
+  "  let latestCard;",
+  "  let upsetCard;",
+  "  if (year === 'all') {",
+  "    selectedCard = h2hCard('Coverage', '対戦年度数', allRecord ? fmtInt(allRecord.year_count) + ' 年' : '記録なし', allRecord ? '通算 ' + fmtInt(allRecord.games) + ' 試合' : '直接対戦データなし');",
+  "    latestCard = h2hCard('Latest Match', '直近対戦', allRecord && allRecord.latest_date ? fmtInt(allRecord.latest_score_a) + ' - ' + fmtInt(allRecord.latest_score_b) : '記録なし', allRecord && allRecord.latest_date ? longDate(allRecord.latest_date) + '  ' + allRecord.latest_note : '該当試合なし');",
+  "    upsetCard = h2hCard('Upset Lens', '最大アップセット', allRecord && allRecord.upset_winner ? teamMap.get(allRecord.upset_winner).name : '記録なし', allRecord && allRecord.upset_date ? longDate(allRecord.upset_date) + '  ' + fmtInt(allRecord.upset_score_a) + ' - ' + fmtInt(allRecord.upset_score_b) + '  勝率 ' + fmtPct(allRecord.upset_prob) : '該当試合なし');",
+  "  } else {",
+  "    selectedCard = h2hCard('Selected Year', year + '年の対戦成績', yearRecord ? fmtInt(yearRecord.winsA) + ' - ' + fmtInt(yearRecord.winsB) + ' - ' + fmtInt(yearRecord.draws) : '記録なし', yearRecord ? teamAInfo.name + ' ' + fmtInt(yearRecord.winsA) + '勝 / ' + teamBInfo.name + ' ' + fmtInt(yearRecord.winsB) + '勝 / 計 ' + fmtInt(yearRecord.games) + ' 試合' : 'この年の直接対戦なし');",
+  "    latestCard = h2hCard('Selected Year', year + '年の直近対戦', yearRecord && yearRecord.latest_date ? fmtInt(yearRecord.latest_score_a) + ' - ' + fmtInt(yearRecord.latest_score_b) : '記録なし', yearRecord && yearRecord.latest_date ? longDate(yearRecord.latest_date) + '  ' + yearRecord.latest_note : 'この年の該当試合なし');",
+  "    upsetCard = h2hCard('Upset Lens', year + '年の最大アップセット', yearRecord && yearRecord.upset_winner ? teamMap.get(yearRecord.upset_winner).name : '記録なし', yearRecord && yearRecord.upset_date ? longDate(yearRecord.upset_date) + '  ' + fmtInt(yearRecord.upset_score_a) + ' - ' + fmtInt(yearRecord.upset_score_b) + '  勝率 ' + fmtPct(yearRecord.upset_prob) : 'この年の番狂わせなし');",
+  "  }",
+  "  const allTimeCard = h2hCard('All-Time', '通算直接対戦', allRecord ? fmtInt(allRecord.winsA) + ' - ' + fmtInt(allRecord.winsB) + ' - ' + fmtInt(allRecord.draws) : '記録なし', allRecord ? teamAInfo.name + ' ' + fmtInt(allRecord.winsA) + '勝 / ' + teamBInfo.name + ' ' + fmtInt(allRecord.winsB) + '勝 / 計 ' + fmtInt(allRecord.games) + ' 試合' : '直接対戦データなし');",
+  "  target.innerHTML = '<div class=\"compare-record-grid\">' + selectedCard + allTimeCard + latestCard + upsetCard + '</div>';",
+  "}",
+  "function renderYearbook(teamA, teamB, selectedYear) {",
+  "  const target = document.querySelector('[data-compare-yearbook]');",
+  "  if (!target) return;",
+  "  const teamAInfo = teamMap.get(teamA);",
+  "  const teamBInfo = teamMap.get(teamB);",
+  "  function valueBlock(primary, note, color) {",
+  "    return '<div class=\"compare-yearbook-value\"' + (color ? ' style=\"color:' + escapeHtml(color) + ';\"' : '') + '>' + escapeHtml(primary) + '</div><div class=\"compare-yearbook-note\">' + escapeHtml(note || '') + '</div>';",
+  "  }",
+  "  const rows = availableYears.map(function (year) {",
+  "    const statsA = getYearStats(teamA, year);",
+  "    const statsB = getYearStats(teamB, year);",
+  "    const record = orientRecord(getH2HYear(teamA, teamB, year), teamA, teamB);",
+  "    const isActive = String(year) === String(selectedYear);",
+  "    return '' +",
+  "      '<tr class=\"compare-yearbook-row' + (isActive ? ' is-active' : '') + '\" data-compare-year-row=\"' + escapeHtml(year) + '\">' +",
+  "        '<th scope=\"row\">' + escapeHtml(String(year)) + '</th>' +",
+  "        '<td>' + valueBlock(statsA && statsA.peak_rating != null ? fmtNumber(statsA.peak_rating) : '—', statsA && statsA.peak_date ? shortDate(statsA.peak_date) : '該当データなし', teamAInfo.color) + '</td>' +",
+  "        '<td>' + valueBlock(statsA && statsA.spring_end_rating != null ? fmtNumber(statsA.spring_end_rating) : '—', statsA && statsA.spring_end_rank != null ? '#' + fmtInt(statsA.spring_end_rank) + ' / ' + shortDate(statsA.spring_end_date) : '春季データなし', teamAInfo.color) + '</td>' +",
+  "        '<td>' + valueBlock(statsA && statsA.fall_end_rating != null ? fmtNumber(statsA.fall_end_rating) : '—', statsA && statsA.fall_end_rank != null ? '#' + fmtInt(statsA.fall_end_rank) + ' / ' + shortDate(statsA.fall_end_date) : '秋季データなし', teamAInfo.color) + '</td>' +",
+  "        '<td>' + valueBlock(record ? fmtInt(record.winsA) + ' - ' + fmtInt(record.winsB) + ' - ' + fmtInt(record.draws) : '—', record ? '計 ' + fmtInt(record.games) + ' 試合' : '直接対戦なし', null) + '</td>' +",
+  "        '<td>' + valueBlock(statsB && statsB.spring_end_rating != null ? fmtNumber(statsB.spring_end_rating) : '—', statsB && statsB.spring_end_rank != null ? '#' + fmtInt(statsB.spring_end_rank) + ' / ' + shortDate(statsB.spring_end_date) : '春季データなし', teamBInfo.color) + '</td>' +",
+  "        '<td>' + valueBlock(statsB && statsB.fall_end_rating != null ? fmtNumber(statsB.fall_end_rating) : '—', statsB && statsB.fall_end_rank != null ? '#' + fmtInt(statsB.fall_end_rank) + ' / ' + shortDate(statsB.fall_end_date) : '秋季データなし', teamBInfo.color) + '</td>' +",
+  "        '<td>' + valueBlock(statsB && statsB.peak_rating != null ? fmtNumber(statsB.peak_rating) : '—', statsB && statsB.peak_date ? shortDate(statsB.peak_date) : '該当データなし', teamBInfo.color) + '</td>' +",
+  "      '</tr>';",
+  "  }).join('');",
+  "  target.innerHTML = '' +",
+  "    '<div class=\"compare-table-head\">' +",
+  "      '<div class=\"compare-table-title\">年次比較一覧</div>' +",
+  "      '<div class=\"compare-table-note\">行を押すとその年に切り替わります。全期間を選ぶと通年索引として一覧できます。</div>' +",
+  "    '</div>' +",
+  "    '<div class=\"compare-table-region\">' +",
+  "      '<table class=\"compare-yearbook-table\">' +",
+  "        '<thead><tr><th>年</th><th>' + escapeHtml(teamAInfo.name) + ' Peak</th><th>' + escapeHtml(teamAInfo.name) + ' 春</th><th>' + escapeHtml(teamAInfo.name) + ' 秋</th><th>直接対戦</th><th>' + escapeHtml(teamBInfo.name) + ' 春</th><th>' + escapeHtml(teamBInfo.name) + ' 秋</th><th>' + escapeHtml(teamBInfo.name) + ' Peak</th></tr></thead>' +",
+  "        '<tbody>' + rows + '</tbody>' +",
+  "      '</table>' +",
+  "    '</div>';",
+  "}",
+  "function syncSelects(teamA, teamB, year) {",
+  "  const selectA = document.querySelector('[data-compare-select=\"a\"]');",
+  "  const selectB = document.querySelector('[data-compare-select=\"b\"]');",
+  "  const selectYear = document.querySelector('[data-global-year]');",
+  "  if (selectA) selectA.value = teamA;",
+  "  if (selectB) selectB.value = teamB;",
+  "  if (selectYear) selectYear.value = year;",
+  "}",
+  "function render(teamA, teamB, year, options) {",
+  "  const pair = ensureDistinctPair(teamA, teamB);",
+  "  const nextYear = year === 'all' || availableYears.indexOf(String(year)) !== -1 ? String(year) : defaultYear;",
+  "  syncSelects(pair.teamA, pair.teamB, nextYear);",
+  "  window.localStorage.setItem('cbr-selected-year', nextYear);",
+  "  syncYearLinks(nextYear);",
+  "  updateChrome(pair.teamA, pair.teamB, nextYear);",
+  "  renderOverview(pair.teamA, pair.teamB, nextYear);",
+  "  renderMetrics(pair.teamA, pair.teamB, nextYear);",
+  "  renderHeadToHead(pair.teamA, pair.teamB, nextYear);",
+  "  renderYearbook(pair.teamA, pair.teamB, nextYear);",
+  "  if (!(options && options.skipUrl)) {",
+  "    const url = new URL(window.location.href);",
+  "    url.searchParams.set('team1', pair.teamA);",
+  "    url.searchParams.set('team2', pair.teamB);",
+  "    url.searchParams.set('year', nextYear);",
+  "    window.history.replaceState({}, '', url.toString());",
+  "  }",
+  "}",
+  "document.addEventListener('DOMContentLoaded', function () {",
+  "  const params = new URLSearchParams(window.location.search);",
+  "  const storedYear = window.localStorage.getItem('cbr-selected-year');",
+  "  const initialYear = params.get('year') || storedYear || defaultYear;",
+  "  const initialPair = ensureDistinctPair(params.get('team1') || defaultTeamA, params.get('team2') || defaultTeamB);",
+  "  render(initialPair.teamA, initialPair.teamB, initialYear, { skipUrl: false });",
+  "  const selectA = document.querySelector('[data-compare-select=\"a\"]');",
+  "  const selectB = document.querySelector('[data-compare-select=\"b\"]');",
+  "  const selectYear = document.querySelector('[data-global-year]');",
+  "  const swapButton = document.querySelector('[data-compare-swap]');",
+  "  function rerenderFromControls() {",
+  "    render(selectA.value, selectB.value, selectYear.value);",
+  "  }",
+  "  if (selectA) selectA.addEventListener('change', rerenderFromControls);",
+  "  if (selectB) selectB.addEventListener('change', rerenderFromControls);",
+  "  if (selectYear) selectYear.addEventListener('change', rerenderFromControls);",
+  "  if (swapButton) {",
+  "    swapButton.addEventListener('click', function () {",
+  "      const nextA = selectB.value;",
+  "      const nextB = selectA.value;",
+  "      render(nextA, nextB, selectYear.value);",
+  "    });",
+  "  }",
+  "  document.body.addEventListener('click', function (event) {",
+  "    const row = event.target.closest('[data-compare-year-row]');",
+  "    if (!row) return;",
+  "    const nextYear = row.getAttribute('data-compare-year-row');",
+  "    if (!nextYear) return;",
+  "    render(selectA.value, selectB.value, nextYear);",
+  "    const summary = document.querySelector('#selected-year-comparison');",
+  "    if (summary) {",
+  "      summary.scrollIntoView({ behavior: 'smooth', block: 'start' });",
+  "    }",
+  "  });",
+  "});",
+  "}());",
+  sep = "\n"
+)
+
+tagList(
+  div(
+    class = "page-hero",
+    div(class = "page-kicker", "Comparison Desk"),
+    div(
+      class = "hero-grid",
+      div(
+        h1(class = "hero-title", "大学比較"),
+        p(
+          class = "hero-subtitle",
+          "2 校を固定して、現在値、歴代の天井、選択年度の春秋終点、直接対戦を同じ画面で比較できるページを追加しました。東京六大学の現状に合わせつつ、将来リーグや大学が増えても同じ比較フレームを拡張できる構造です。"
+        ),
+        div(
+          class = "meta-pills",
+          div(class = "meta-pill", paste0("対象期間 ", format(coverage_start, "%Y/%m/%d"), " - ", format(coverage_end, "%Y/%m/%d"))),
+          div(class = "meta-pill", paste0("比較対象 ", nrow(current_teams), " 校")),
+          div(class = "meta-pill", "現在値と歴代値を同時比較")
+        )
+      ),
+      div(
+        class = "stat-grid",
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "現在首位"),
+          div(class = "stat-value", current_teams$TeamName[[1]]),
+          div(class = "stat-note", paste0("全国 ", current_teams$current_rank[[1]], " 位 / レート ", sprintf("%.1f", current_teams$current_rating[[1]])))
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "既定比較"),
+          div(class = "stat-value", paste(current_teams$TeamName[[1]], "vs", current_teams$TeamName[[min(2, nrow(current_teams))]])),
+          div(class = "stat-note", "操作後の組み合わせは URL に残ります")
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "表示年度"),
+          div(class = "stat-value", ifelse(default_year == "all", "全期間", default_year)),
+          div(class = "stat-note", "他ページへ移動しても年度選択を引き継げます")
+        )
+      )
+    ),
+    div(
+      class = "control-bar",
+      div(
+        class = "control-block",
+        div(class = "control-label", "Team A"),
+        tags$select(
+          class = "year-select",
+          `data-compare-select` = "a",
+          lapply(seq_len(nrow(current_teams)), function(i) {
+            tags$option(value = current_teams$team[[i]], current_teams$TeamName[[i]])
+          })
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "Team B"),
+        tags$select(
+          class = "year-select",
+          `data-compare-select` = "b",
+          lapply(seq_len(nrow(current_teams)), function(i) {
+            tags$option(value = current_teams$team[[i]], current_teams$TeamName[[i]])
+          })
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "表示年度"),
+        tags$select(
+          class = "year-select",
+          `data-global-year` = "site",
+          lapply(c("all", as.character(available_years)), function(yr) {
+            tags$option(value = yr, if (yr == "all") "全期間" else as.character(yr))
+          })
+        )
+      ),
+      div(
+        class = "control-block control-block-compact",
+        div(class = "control-label", "操作"),
+        tags$button(class = "control-button control-button-secondary", type = "button", `data-compare-swap` = "true", "入れ替え")
+      )
+    ),
+    div(
+      class = "anchor-nav",
+      tags$a(href = "#current-comparison", class = "anchor-link", "比較サマリー"),
+      tags$a(href = "#selected-year-comparison", class = "anchor-link", "選択年度"),
+      tags$a(href = "#head-to-head", class = "anchor-link", "直接対戦"),
+      tags$a(href = "#yearbook", class = "anchor-link", "年次比較一覧")
+    ),
+    tags$script(HTML(compare_script))
+  )
+)
+```
+
+```{r compare-rail}
+div(
+  class = "section-rail",
+  div(
+    class = "section-rail-head",
+    div(class = "control-label", "Comparison View"),
+    div(
+      class = "section-rail-year",
+      `data-compare-bind` = "year-label",
+      ifelse(default_year == "all", "全期間", paste0(default_year, "年"))
+    ),
+    div(
+      class = "section-rail-note",
+      "2 校を固定したまま、現在値、選択年度、直接対戦、年次比較を横断して見直せます。"
+    )
+  ),
+  div(
+    class = "section-rail-nav",
+    tags$a(href = "#current-comparison", class = "section-rail-link", "比較サマリー"),
+    tags$a(href = "#selected-year-comparison", class = "section-rail-link", "選択年度"),
+    tags$a(href = "#head-to-head", class = "section-rail-link", "直接対戦"),
+    tags$a(href = "#yearbook", class = "section-rail-link", "年次比較一覧"),
+    tags$a(href = "index.html", class = "section-rail-link", "現在の順位"),
+    tags$a(href = "history.html", class = "section-rail-link", "歴史と記録"),
+    tags$a(href = "explore.html", class = "section-rail-link", "一覧ページ"),
+    tags$a(href = "compare.html", `data-compare-team-link` = "a", class = "section-rail-link", "Team A 詳細"),
+    tags$a(href = "compare.html", `data-compare-team-link` = "b", class = "section-rail-link", "Team B 詳細")
+  )
+)
+```
+
+## 比較サマリー {#current-comparison}
+
+<div class="copy-shell">
+  <p class="section-lead">現在の順位とレート、歴代ピーク、春秋シーズン終点の最高到達点を同じ 2 校で固定した比較面です。ランキングページから 1 校ずつ移動していた導線を、2 校同時比較の入口として独立させました。</p>
+</div>
+
+<div data-compare-overview="true"></div>
+
+## 選択年度の比較 {#selected-year-comparison}
+
+<div class="copy-shell">
+  <p class="section-lead">表示年度を切り替えると、その年の年間ピーク、春終点、秋終点を 2 校で並べて比較します。全期間を選ぶと、年度に依存しない歴代比較へ切り替わります。</p>
+  <p class="record-note">年次比較一覧の行を押しても、その年に切り替えられます。</p>
+</div>
+
+<div class="table-shell compare-table-shell" data-compare-metrics="true"></div>
+
+## 直接対戦 {#head-to-head}
+
+<div class="copy-shell">
+  <p class="section-lead">直接対戦の成績、直近対戦、最大アップセットをまとめています。選択年度ではその年のカードを、全期間では通算の対戦史を確認できます。</p>
+</div>
+
+<div data-compare-h2h="true"></div>
+
+## 年次比較一覧 {#yearbook}
+
+<div class="copy-shell">
+  <p class="section-lead">各年について、両校の年間ピーク、春秋終点、直接対戦成績を横断で並べた年鑑です。現在の比較だけでなく、いつ差が開いたか、どの年に逆転したかを探すための土台として追加しました。</p>
+</div>
+
+<div class="table-shell compare-table-shell" data-compare-yearbook="true"></div>
+
+<div class="back-links">
+  <a href="index.html" class="back-link">&#8592; 現在のランキングへ</a>
+  <a href="explore.html" class="back-link">&#8594; 大学・リーグ一覧へ</a>
+  <a href="history.html" class="back-link">&#8594; 歴史と記録へ</a>
+</div>

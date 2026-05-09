@@ -456,52 +456,83 @@ tagList(
   <p class="section-lead">このページは「現在の順位」「歴史と記録」「リーグ詳細」「大学詳細」の間をつなぐ索引です。まず見たい単位を選んでから深掘りできるように、入口を役割ごとに分けています。</p>
 </div>
 
-<div class="route-grid">
-  <a href="index.html" class="route-card">
-    <div class="route-label">Current View</div>
-    <div class="route-title">現在の順位を見る</div>
-    <div class="route-copy">最新順位、リーグ平均、直近の注目試合をまとめて確認する入口です。</div>
-    <div class="route-link">現在のランキングへ &#8594;</div>
-  </a>
-  <a href="history.html" class="route-card route-card-emphasis">
-    <div class="route-label">Historical Archive</div>
-    <div class="route-title">歴史と記録を見る</div>
-    <div class="route-copy">年度別の終点首位、大学ピーク、最大アップセットを横断して確認します。</div>
-    <div class="route-link">歴代アーカイブへ &#8594;</div>
-  </a>
-  <a href="league/tokyo6.html" class="route-card">
-    <div class="route-label">League View</div>
-    <div class="route-title">リーグ単位で比較する</div>
-    <div class="route-copy">所属校の推移と年度別の勢力図をリーグ単位で見比べるための入口です。</div>
-    <div class="route-link">リーグ詳細へ &#8594;</div>
-  </a>
-  <a href="methodology.html" class="route-card">
-    <div class="route-label">Method</div>
-    <div class="route-title">計算方法を確認する</div>
-    <div class="route-copy">表示指標の意味や採用モデルを確認してから比較を進めたい場合の入口です。</div>
-    <div class="route-link">方法を見る &#8594;</div>
-  </a>
-</div>
+```{r navigation-routes}
+div(
+  class = "route-grid",
+  tags$a(
+    href = "index.html",
+    class = "route-card",
+    div(class = "route-label", "Current View"),
+    div(class = "route-title", "現在の順位を見る"),
+    div(class = "route-copy", "最新順位、リーグ平均、直近の注目試合をまとめて確認する入口です。"),
+    div(class = "route-link", HTML("現在のランキングへ &#8594;"))
+  ),
+  tags$a(
+    href = "compare.html",
+    class = "route-card",
+    div(class = "route-label", "Comparison Desk"),
+    div(class = "route-title", "大学どうしを直接比較する"),
+    div(class = "route-copy", "現在値、歴代ピーク、選択年度の春秋終点、直接対戦を 2 校固定で比較する入口です。"),
+    div(class = "route-link", HTML("大学比較へ &#8594;"))
+  ),
+  tags$a(
+    href = "history.html",
+    class = "route-card route-card-emphasis",
+    div(class = "route-label", "Historical Archive"),
+    div(class = "route-title", "歴史と記録を見る"),
+    div(class = "route-copy", "年度別の終点首位、大学ピーク、最大アップセットを横断して確認します。"),
+    div(class = "route-link", HTML("歴代アーカイブへ &#8594;"))
+  ),
+  tags$a(
+    href = "league/tokyo6.html",
+    class = "route-card",
+    div(class = "route-label", "League View"),
+    div(class = "route-title", "リーグ単位で比較する"),
+    div(class = "route-copy", "所属校の推移と年度別の勢力図をリーグ単位で見比べるための入口です。"),
+    div(class = "route-link", HTML("リーグ詳細へ &#8594;"))
+  ),
+  tags$a(
+    href = "methodology.html",
+    class = "route-card",
+    div(class = "route-label", "Method"),
+    div(class = "route-title", "計算方法を確認する"),
+    div(class = "route-copy", "表示指標の意味や採用モデルを確認してから比較を進めたい場合の入口です。"),
+    div(class = "route-link", HTML("方法を見る &#8594;"))
+  )
+)
+```
 
 ## 情報構造 {#information-structure}
 
-<div class="directory-structure">
-  <div class="directory-structure-item">
-    <div class="directory-structure-label">Current Layer</div>
-    <div class="directory-structure-value">最新の強さを把握する</div>
-    <div class="directory-structure-note">現在のランキングページを基点に、最新順位と直近試合を確認します。</div>
-  </div>
-  <div class="directory-structure-item">
-    <div class="directory-structure-label">Browse Layer</div>
-    <div class="directory-structure-value">大学・リーグから探す</div>
-    <div class="directory-structure-note">この一覧ページで対象を見つけ、リーグ詳細や大学詳細へ降りていきます。</div>
-  </div>
-  <div class="directory-structure-item">
-    <div class="directory-structure-label">History Layer</div>
-    <div class="directory-structure-value">歴代の強さをたどる</div>
-    <div class="directory-structure-note">年度別の終点、ピーク、アップセット記録を歴史ページで横断比較します。</div>
-  </div>
-</div>
+```{r information-structure}
+div(
+  class = "directory-structure",
+  div(
+    class = "directory-structure-item",
+    div(class = "directory-structure-label", "Current Layer"),
+    div(class = "directory-structure-value", "最新の強さを把握する"),
+    div(class = "directory-structure-note", "現在のランキングページを基点に、最新順位と直近試合を確認します。")
+  ),
+  div(
+    class = "directory-structure-item",
+    div(class = "directory-structure-label", "Browse Layer"),
+    div(class = "directory-structure-value", "大学・リーグから探す"),
+    div(class = "directory-structure-note", "この一覧ページで対象を見つけ、リーグ詳細や大学詳細へ降りていきます。")
+  ),
+  div(
+    class = "directory-structure-item",
+    div(class = "directory-structure-label", "Compare Layer"),
+    div(class = "directory-structure-value", "2 校を固定して比べる"),
+    div(class = "directory-structure-note", "現在値、歴代ピーク、選択年度、直接対戦を 2 校同時に追う比較レイヤーです。")
+  ),
+  div(
+    class = "directory-structure-item",
+    div(class = "directory-structure-label", "History Layer"),
+    div(class = "directory-structure-value", "歴代の強さをたどる"),
+    div(class = "directory-structure-note", "年度別の終点、ピーク、アップセット記録を歴史ページで横断比較します。")
+  )
+)
+```
 
 ## リーグ一覧 {#league-directory}
 

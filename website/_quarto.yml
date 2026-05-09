@@ -13,6 +13,8 @@ website:
         text: 現在の順位
       - href: explore.qmd
         text: 大学・リーグ一覧
+      - href: compare.qmd
+        text: 大学比較
       - href: history.qmd
         text: 歴史と記録
       - href: methodology.qmd

@@ -788,32 +788,51 @@ tagList(
 
 ## 見るテーマ {#theme-map}
 
-<div class="route-grid">
-  <a href="#current-view" class="route-card">
-    <div class="route-label">Current Snapshot</div>
-    <div class="route-title">現在の大学ランキング</div>
-    <div class="route-copy">最新試合を反映した順位、リーグ平均、直近の注目試合をまとめて確認します。</div>
-    <div class="route-link">ランキングを見る &#8595;</div>
-  </a>
-  <a href="explore.html" class="route-card">
-    <div class="route-label">Explore Directory</div>
-    <div class="route-title">大学・リーグ一覧から探す</div>
-    <div class="route-copy">検索だけでなく、リーグ一覧と大学ディレクトリから現在値と歴代ピークを見比べながら移動できます。</div>
-    <div class="route-link">一覧ページへ &#8594;</div>
-  </a>
-  <a href="history.html" class="route-card route-card-emphasis">
-    <div class="route-label">Historical Archive</div>
-    <div class="route-title">歴史と記録をたどる</div>
-    <div class="route-copy">春秋シーズンの終了時点首位、大学別ピーク、最大アップセットを横断して見られます。</div>
-    <div class="route-link">歴代アーカイブへ &#8594;</div>
-  </a>
-  <a href="league/tokyo6.html" class="route-card">
-    <div class="route-label">League Detail</div>
-    <div class="route-title">東京六大学の詳細へ</div>
-    <div class="route-copy">リーグ内の推移、所属校比較、年度別の試合一覧をまとめて追えます。</div>
-    <div class="route-link">リーグページへ &#8594;</div>
-  </a>
-</div>
+```{r theme-routes}
+div(
+  class = "route-grid",
+  tags$a(
+    href = "#current-view",
+    class = "route-card",
+    div(class = "route-label", "Current Snapshot"),
+    div(class = "route-title", "現在の大学ランキング"),
+    div(class = "route-copy", "最新試合を反映した順位、リーグ平均、直近の注目試合をまとめて確認します。"),
+    div(class = "route-link", HTML("ランキングを見る &#8595;"))
+  ),
+  tags$a(
+    href = "explore.html",
+    class = "route-card",
+    div(class = "route-label", "Explore Directory"),
+    div(class = "route-title", "大学・リーグ一覧から探す"),
+    div(class = "route-copy", "検索だけでなく、リーグ一覧と大学ディレクトリから現在値と歴代ピークを見比べながら移動できます。"),
+    div(class = "route-link", HTML("一覧ページへ &#8594;"))
+  ),
+  tags$a(
+    href = "compare.html",
+    class = "route-card",
+    div(class = "route-label", "Comparison Desk"),
+    div(class = "route-title", "2 校を直接比較する"),
+    div(class = "route-copy", "現在値、歴代ピーク、選択年度の春秋終点、直接対戦を 2 校固定で見比べる比較ページです。"),
+    div(class = "route-link", HTML("大学比較へ &#8594;"))
+  ),
+  tags$a(
+    href = "history.html",
+    class = "route-card route-card-emphasis",
+    div(class = "route-label", "Historical Archive"),
+    div(class = "route-title", "歴史と記録をたどる"),
+    div(class = "route-copy", "春秋シーズンの終了時点首位、大学別ピーク、最大アップセットを横断して見られます。"),
+    div(class = "route-link", HTML("歴代アーカイブへ &#8594;"))
+  ),
+  tags$a(
+    href = "league/tokyo6.html",
+    class = "route-card",
+    div(class = "route-label", "League Detail"),
+    div(class = "route-title", "東京六大学の詳細へ"),
+    div(class = "route-copy", "リーグ内の推移、所属校比較、年度別の試合一覧をまとめて追えます。"),
+    div(class = "route-link", HTML("リーグページへ &#8594;"))
+  )
+)
+```
 
 <div class="copy-shell">
   <p class="section-lead">現在の強さを見る導線と、歴代の強さをたどる導線を分けておくことで、今後リーグや大学が増えても情報構造を拡張しやすくしています。</p>
@@ -871,21 +890,29 @@ div(
 )
 ```
 
-<div class="section-rail section-rail-home">
-  <div class="section-rail-head">
-    <div class="control-label">Home Navigator</div>
-    <div class="section-rail-year" data-home-bind="year-label">`r paste0(default_focus$yr[[1]], "年")`</div>
-    <div class="section-rail-note">ホーム上の導線を保ったまま、選択年度の要約と現在順位、注目試合、シーズン終点、歴史アーカイブを行き来できます。</div>
-  </div>
-  <div class="section-rail-nav">
-    <a href="#historical-lenses" class="section-rail-link">歴史から探す</a>
-    <a href="#current-view" class="section-rail-link">大学ランキング</a>
-    <a href="#highlight-games" class="section-rail-link">注目試合</a>
-    <a href="#season-end-view" class="section-rail-link">シーズン終点</a>
-    <a href="explore.html" class="section-rail-link">一覧ページ</a>
-    <a href="history.html" class="section-rail-link">歴史アーカイブ</a>
-  </div>
-</div>
+```{r home-rail}
+div(
+  class = "section-rail section-rail-home",
+  div(
+    class = "section-rail-head",
+    div(class = "control-label", "Home Navigator"),
+    div(class = "section-rail-year", `data-home-bind` = "year-label", paste0(default_focus$yr[[1]], "年")),
+    div(
+      class = "section-rail-note",
+      "ホーム上の導線を保ったまま、選択年度の要約と現在順位、注目試合、シーズン終点、歴史アーカイブを行き来できます。"
+    )
+  ),
+  div(
+    class = "section-rail-nav",
+    tags$a(href = "#historical-lenses", class = "section-rail-link", "歴史から探す"),
+    tags$a(href = "#current-view", class = "section-rail-link", "大学ランキング"),
+    tags$a(href = "#highlight-games", class = "section-rail-link", "注目試合"),
+    tags$a(href = "#season-end-view", class = "section-rail-link", "シーズン終点"),
+    tags$a(href = "explore.html", class = "section-rail-link", "一覧ページ"),
+    tags$a(href = "history.html", class = "section-rail-link", "歴史アーカイブ")
+  )
+)
+```
 
 ## 歴史から探す {#historical-lenses}
 
@@ -894,52 +921,75 @@ div(
   <p class="record-note">下の答えは上の表示年度に連動し、詳細リンク先でも年度選択を引き継ぎます。</p>
 </div>
 
-<div class="question-grid">
-  <article class="question-card">
-    <div class="question-kicker">Season Leaders</div>
-    <h3 class="question-title"><span data-home-bind="year-label">`r paste0(default_focus$yr[[1]], "年")`</span>の終点で最も強かった大学は?</h3>
-    <div class="question-answer-stack">
-      <div class="question-answer-row">
-        <span class="question-answer-label">春</span>
-        <span class="question-answer-value" data-home-bind="spring-title">`r default_focus$spring_title[[1]]`</span>
-      </div>
-      <div class="question-answer-row">
-        <span class="question-answer-label">秋</span>
-        <span class="question-answer-value" data-home-bind="fall-title">`r default_focus$fall_title[[1]]`</span>
-      </div>
-    </div>
-    <div class="question-note-stack">
-      <div class="question-note" data-home-bind="spring-note">`r default_focus$spring_note[[1]]`</div>
-      <div class="question-note" data-home-bind="fall-note">`r default_focus$fall_note[[1]]`</div>
-    </div>
-    <div class="directory-link-row">
-      <a href="history.html#season-leaders" class="directory-link">終点首位一覧へ</a>
-      <a href="league/tokyo6.html#league-yearbook" class="directory-link">リーグ年鑑へ</a>
-    </div>
-  </article>
-  <article class="question-card question-card-emphasis">
-    <div class="question-kicker">Peak Finder</div>
-    <h3 class="question-title">その年のピークは誰がいつ作ったか?</h3>
-    <div class="question-answer" data-home-bind="peak-title">`r default_focus$peak_title[[1]]`</div>
-    <div class="question-note" data-home-bind="peak-note">`r default_focus$peak_note[[1]]`</div>
-    <p class="question-copy">一時的な最高到達点と春秋の終点は分けて見られるようにし、今後の大学追加やリーグ追加でも同じ比較軸を保ちます。</p>
-    <div class="directory-link-row">
-      <a href="history.html#year-archive" class="directory-link">年次アーカイブへ</a>
-      <a href="history.html#team-peaks" class="directory-link">大学別ピークへ</a>
-    </div>
-  </article>
-  <article class="question-card">
-    <div class="question-kicker">Upset Lens</div>
-    <h3 class="question-title">最大の番狂わせはどこで起きたか?</h3>
-    <div class="question-answer" data-home-bind="upset-title">`r default_focus$upset_title[[1]]`</div>
-    <div class="question-note" data-home-bind="upset-note">`r default_focus$upset_note[[1]]`</div>
-    <p class="question-copy">歴史ページでは全期間の番狂わせ記録まで掘り下げられます。ホームではまず年度単位の入口として表示します。</p>
-    <div class="directory-link-row">
-      <a href="history.html#record-board" class="directory-link">記録ボードへ</a>
-      <a href="history.html#upsets" class="directory-link">アップセット一覧へ</a>
-    </div>
-  </article>
-</div>
+```{r historical-questions}
+div(
+  class = "question-grid",
+  tags$article(
+    class = "question-card",
+    div(class = "question-kicker", "Season Leaders"),
+    tags$h3(
+      class = "question-title",
+      tags$span(`data-home-bind` = "year-label", paste0(default_focus$yr[[1]], "年")),
+      "の終点で最も強かった大学は?"
+    ),
+    div(
+      class = "question-answer-stack",
+      div(
+        class = "question-answer-row",
+        tags$span(class = "question-answer-label", "春"),
+        tags$span(class = "question-answer-value", `data-home-bind` = "spring-title", default_focus$spring_title[[1]])
+      ),
+      div(
+        class = "question-answer-row",
+        tags$span(class = "question-answer-label", "秋"),
+        tags$span(class = "question-answer-value", `data-home-bind` = "fall-title", default_focus$fall_title[[1]])
+      )
+    ),
+    div(
+      class = "question-note-stack",
+      div(class = "question-note", `data-home-bind` = "spring-note", default_focus$spring_note[[1]]),
+      div(class = "question-note", `data-home-bind` = "fall-note", default_focus$fall_note[[1]])
+    ),
+    div(
+      class = "directory-link-row",
+      tags$a(href = "history.html#season-leaders", class = "directory-link", "終点首位一覧へ"),
+      tags$a(href = "league/tokyo6.html#league-yearbook", class = "directory-link", "リーグ年鑑へ")
+    )
+  ),
+  tags$article(
+    class = "question-card question-card-emphasis",
+    div(class = "question-kicker", "Peak Finder"),
+    tags$h3(class = "question-title", "その年のピークは誰がいつ作ったか?"),
+    div(class = "question-answer", `data-home-bind` = "peak-title", default_focus$peak_title[[1]]),
+    div(class = "question-note", `data-home-bind` = "peak-note", default_focus$peak_note[[1]]),
+    tags$p(
+      class = "question-copy",
+      "一時的な最高到達点と春秋の終点は分けて見られるようにし、今後の大学追加やリーグ追加でも同じ比較軸を保ちます。"
+    ),
+    div(
+      class = "directory-link-row",
+      tags$a(href = "history.html#year-archive", class = "directory-link", "年次アーカイブへ"),
+      tags$a(href = "history.html#team-peaks", class = "directory-link", "大学別ピークへ")
+    )
+  ),
+  tags$article(
+    class = "question-card",
+    div(class = "question-kicker", "Upset Lens"),
+    tags$h3(class = "question-title", "最大の番狂わせはどこで起きたか?"),
+    div(class = "question-answer", `data-home-bind` = "upset-title", default_focus$upset_title[[1]]),
+    div(class = "question-note", `data-home-bind` = "upset-note", default_focus$upset_note[[1]]),
+    tags$p(
+      class = "question-copy",
+      "歴史ページでは全期間の番狂わせ記録まで掘り下げられます。ホームではまず年度単位の入口として表示します。"
+    ),
+    div(
+      class = "directory-link-row",
+      tags$a(href = "history.html#record-board", class = "directory-link", "記録ボードへ"),
+      tags$a(href = "history.html#upsets", class = "directory-link", "アップセット一覧へ")
+    )
+  )
+)
+```
 
 <div id="current-view"></div>
 
