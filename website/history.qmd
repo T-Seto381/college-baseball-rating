@@ -307,14 +307,39 @@ upset_focus <- upset_games |>
     )
   )
 
+peak_focus <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  mutate(yr = as.character(year(date))) |>
+  group_by(yr) |>
+  filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+  arrange(desc(display_rating), desc(date), TeamName, .by_group = TRUE) |>
+  summarise(
+    peak_title = paste(TeamName, collapse = " / "),
+    peak_note = paste0(
+      if_else(n() > 1, "同率ピーク ", ""),
+      paste(sprintf("%.1f", round(display_rating, 1)), collapse = " / "),
+      " / ",
+      paste(format(date, "%m/%d"), collapse = " / ")
+    ),
+    .groups = "drop"
+  )
+
 year_focus <- tibble(yr = as.character(available_yrs)) |>
   left_join(season_focus, by = "yr") |>
+  left_join(peak_focus, by = "yr") |>
   left_join(upset_focus, by = "yr") |>
   mutate(
     spring_title = coalesce(spring_title, "データなし"),
     spring_note = coalesce(spring_note, "該当シーズンなし"),
     fall_title = coalesce(fall_title, "データなし"),
     fall_note = coalesce(fall_note, "該当シーズンなし"),
+    peak_title = coalesce(peak_title, "データなし"),
+    peak_note = coalesce(peak_note, "該当データなし"),
     upset_title = coalesce(upset_title, "記録なし"),
     upset_note = coalesce(upset_note, "該当試合なし")
   )
@@ -332,6 +357,8 @@ if (nrow(default_focus) == 0) {
     spring_note = "該当シーズンなし",
     fall_title = "データなし",
     fall_note = "該当シーズンなし",
+    peak_title = "データなし",
+    peak_note = "該当データなし",
     upset_title = "記録なし",
     upset_note = "該当試合なし"
   )
@@ -394,13 +421,24 @@ hero_script <- glue::glue(
       bindText('spring-note', summary.spring_note);
       bindText('fall-title', summary.fall_title);
       bindText('fall-note', summary.fall_note);
+      bindText('peak-title', summary.peak_title);
+      bindText('peak-note', summary.peak_note);
       bindText('upset-title', summary.upset_title);
       bindText('upset-note', summary.upset_note);
+    }}
+
+    function syncYearCards(year) {{
+      document.querySelectorAll('[data-year-card]').forEach(function(button) {{
+        const active = button.getAttribute('data-year-card') === String(year);
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }});
     }}
 
     function applyYear(year) {{
       syncYear(year);
       renderFocus(year);
+      syncYearCards(year);
 
       function updateTables() {{
         if (!window.Reactable) {{
@@ -453,6 +491,12 @@ hero_script <- glue::glue(
             event.preventDefault();
             goSearch();
           }}
+        }});
+      }});
+
+      document.querySelectorAll('[data-year-card]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          applyYear(button.getAttribute('data-year-card'));
         }});
       }});
     }});
@@ -571,7 +615,7 @@ tagList(
         div(class = "year-focus-year", `data-history-bind` = "year-label", paste0(default_focus$yr[[1]], "年"))
       ),
       div(
-        class = "year-focus-grid",
+        class = "year-focus-grid year-focus-grid-wide",
         div(
           class = "year-focus-card",
           div(class = "year-focus-label", "春の終点首位"),
@@ -586,15 +630,22 @@ tagList(
         ),
         div(
           class = "year-focus-card",
+          div(class = "year-focus-label", "年間ピーク"),
+          div(class = "year-focus-value", `data-history-bind` = "peak-title", default_focus$peak_title[[1]]),
+          div(class = "year-focus-note", `data-history-bind` = "peak-note", default_focus$peak_note[[1]])
+        ),
+        div(
+          class = "year-focus-card",
           div(class = "year-focus-label", "最大アップセット"),
           div(class = "year-focus-value", `data-history-bind` = "upset-title", default_focus$upset_title[[1]]),
           div(class = "year-focus-note", `data-history-bind` = "upset-note", default_focus$upset_note[[1]])
         )
       ),
-      div(class = "record-note", "年度選択は下のシーズン首位一覧、シーズン終点ランキング、アップセット一覧に反映されます。大学別ピークは全期間固定です。")
+      div(class = "record-note", "年度選択は下の年次アーカイブ、シーズン首位一覧、シーズン終点ランキング、アップセット一覧に反映されます。大学別ピークは全期間固定です。")
     ),
     div(
       class = "anchor-nav",
+      tags$a(href = "#year-archive", class = "anchor-link", "年次アーカイブ"),
       tags$a(href = "#record-board", class = "anchor-link", "記録ボード"),
       tags$a(href = "#season-leaders", class = "anchor-link", "シーズン首位"),
       tags$a(href = "#season-rankings", class = "anchor-link", "シーズン終点"),
@@ -640,6 +691,64 @@ tagList(
     )
   )
 )
+```
+
+## 年次アーカイブ {#year-archive}
+
+<div class="copy-shell">
+  <p class="section-lead">各年の春秋終点首位、年間ピーク、最大アップセットをカードで並べた索引です。テーブルを見る前に年ごとの輪郭をつかめるようにし、スマートフォンでも年度比較をしやすくしています。</p>
+  <p class="record-note">カードを押すと上の表示年度と下の表がその年に切り替わります。</p>
+</div>
+
+```{r year-archive-cards}
+if (nrow(year_focus) > 0) {
+  div(
+    class = "history-yearbook-grid",
+    lapply(seq_len(nrow(year_focus)), function(i) {
+      row <- year_focus[i, ]
+
+      tags$button(
+        type = "button",
+        class = paste("history-year-card", if (row$yr == default_yr) "is-active" else ""),
+        `data-year-card` = row$yr,
+        `aria-pressed` = ifelse(row$yr == default_yr, "true", "false"),
+        div(class = "history-year-card-kicker", "Year Archive"),
+        div(class = "history-year-card-title", paste0(row$yr, "年")),
+        div(class = "history-year-card-copy", "春秋の終点首位、年間ピーク、最大アップセット"),
+        div(
+          class = "history-year-card-grid",
+          div(
+            class = "history-year-item",
+            div(class = "history-year-item-label", "春"),
+            div(class = "history-year-item-value", row$spring_title),
+            div(class = "history-year-item-note", row$spring_note)
+          ),
+          div(
+            class = "history-year-item",
+            div(class = "history-year-item-label", "秋"),
+            div(class = "history-year-item-value", row$fall_title),
+            div(class = "history-year-item-note", row$fall_note)
+          ),
+          div(
+            class = "history-year-item",
+            div(class = "history-year-item-label", "Peak"),
+            div(class = "history-year-item-value", row$peak_title),
+            div(class = "history-year-item-note", row$peak_note)
+          ),
+          div(
+            class = "history-year-item",
+            div(class = "history-year-item-label", "Upset"),
+            div(class = "history-year-item-value", row$upset_title),
+            div(class = "history-year-item-note", row$upset_note)
+          )
+        ),
+        div(class = "history-year-card-footer", "この年で下の一覧を絞り込む")
+      )
+    })
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる年次アーカイブがありません。"))
+}
 ```
 
 ## 記録ボード {#record-board}
