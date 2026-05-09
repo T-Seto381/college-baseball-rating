@@ -21,6 +21,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 138px;
 }
 
 body {
@@ -53,6 +54,41 @@ body::before {
 
 a {
   color: #164863;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(31, 93, 77, 0.34);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 14px;
+  z-index: 1085;
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(14, 25, 37, 0.96);
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  box-shadow: 0 12px 26px rgba(14, 25, 37, 0.22);
+  transform: translateY(-160%);
+  transition: transform 0.16s ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  color: #ffffff;
 }
 
 p {
@@ -260,6 +296,20 @@ main.content {
 .control-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(24, 33, 43, 0.12);
+}
+
+.route-card:focus-visible,
+.directory-link:focus-visible,
+.back-link:focus-visible,
+.team-name-link:focus-visible,
+.team-link-inline:focus-visible,
+.control-button:focus-visible,
+.search-input:focus-visible,
+.year-select:focus-visible,
+.history-year-card:focus-visible,
+.rivalry-matchup-team:focus-visible {
+  outline: 3px solid rgba(31, 93, 77, 0.34);
+  outline-offset: 3px;
 }
 
 .meta-pills {
@@ -1665,12 +1715,22 @@ h3 {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .section-rail-link:hover {
   color: var(--ink);
   text-decoration: none;
   border-color: var(--line-strong);
+}
+
+.section-rail-link.is-active,
+.section-rail-link[aria-current="location"] {
+  color: var(--accent);
+  border-color: rgba(31, 93, 77, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(220, 235, 228, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(31, 93, 77, 0.08);
 }
 
 .anchor-link {
@@ -1687,12 +1747,22 @@ h3 {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .anchor-link:hover {
   color: var(--ink);
   text-decoration: none;
   border-color: var(--line-strong);
+}
+
+.anchor-link.is-active,
+.anchor-link[aria-current="location"] {
+  color: var(--accent);
+  border-color: rgba(31, 93, 77, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(220, 235, 228, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(31, 93, 77, 0.08);
 }
 
 .record-note {

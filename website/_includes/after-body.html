@@ -1,0 +1,134 @@
+<script>
+  (function () {
+    function initSectionNavigation() {
+      const links = Array.from(
+        document.querySelectorAll(
+          ".anchor-nav a[href^='#'], .section-rail-nav a[href^='#']"
+        )
+      ).filter(function (link) {
+        const hash = link.getAttribute("href");
+        return hash && hash.length > 1 && document.querySelector(hash);
+      });
+
+      if (!links.length) {
+        return;
+      }
+
+      const targetMap = new Map();
+
+      links.forEach(function (link) {
+        const hash = link.getAttribute("href");
+        if (!targetMap.has(hash)) {
+          targetMap.set(hash, document.querySelector(hash));
+        }
+      });
+
+      const targets = Array.from(targetMap.entries())
+        .map(function (entry) {
+          return {
+            hash: entry[0],
+            element: entry[1]
+          };
+        })
+        .filter(function (item) {
+          return item.element;
+        });
+
+      if (!targets.length) {
+        return;
+      }
+
+      let activeHash = "";
+      let ticking = false;
+
+      function setActive(hash, options) {
+        const nextHash = hash || targets[0].hash;
+        if (activeHash === nextHash && !(options && options.force)) {
+          return;
+        }
+
+        activeHash = nextHash;
+
+        links.forEach(function (link) {
+          const isActive = link.getAttribute("href") === nextHash;
+          link.classList.toggle("is-active", isActive);
+          if (isActive) {
+            link.setAttribute("aria-current", "location");
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        });
+
+        if (options && options.scrollIntoView) {
+          links.forEach(function (link) {
+            if (link.getAttribute("href") !== nextHash) {
+              return;
+            }
+            const nav = link.closest(".anchor-nav, .section-rail-nav");
+            if (nav && nav.scrollWidth > nav.clientWidth + 8) {
+              link.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+                inline: "center"
+              });
+            }
+          });
+        }
+      }
+
+      function detectActiveHash() {
+        const offset = window.scrollY + 176;
+        let currentHash = targets[0].hash;
+
+        targets.forEach(function (target) {
+          const top = target.element.getBoundingClientRect().top + window.scrollY;
+          if (top <= offset) {
+            currentHash = target.hash;
+          }
+        });
+
+        if (
+          window.innerHeight + window.scrollY >=
+          document.documentElement.scrollHeight - 120
+        ) {
+          currentHash = targets[targets.length - 1].hash;
+        }
+
+        setActive(currentHash);
+      }
+
+      function requestUpdate() {
+        if (ticking) {
+          return;
+        }
+
+        ticking = true;
+        window.requestAnimationFrame(function () {
+          detectActiveHash();
+          ticking = false;
+        });
+      }
+
+      links.forEach(function (link) {
+        link.addEventListener("click", function () {
+          setActive(link.getAttribute("href"), {
+            force: true,
+            scrollIntoView: true
+          });
+        });
+      });
+
+      window.addEventListener("scroll", requestUpdate, { passive: true });
+      window.addEventListener("resize", requestUpdate);
+      window.addEventListener("hashchange", requestUpdate);
+
+      requestUpdate();
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initSectionNavigation);
+    } else {
+      initSectionNavigation();
+    }
+  })();
+</script>
