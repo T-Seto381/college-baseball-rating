@@ -59,20 +59,13 @@ jobs:
         run: Rscript 01_Code/05_rating_model.R
         working-directory: ${{ github.workspace }}
 
-      - name: Generate individual pages
-        run: Rscript generate_pages.R
-        working-directory: ${{ github.workspace }}/website
-
       - name: Render Quarto website
         run: quarto render
         working-directory: ${{ github.workspace }}/website
 
-      - name: Copy generated pages into docs
-        run: |
-          mkdir -p docs/university docs/league
-          cp website/university/*.html docs/university/ 2>/dev/null || true
-          cp website/league/*.html docs/league/ 2>/dev/null || true
-        working-directory: ${{ github.workspace }}
+      - name: Generate individual pages
+        run: Rscript generate_pages.R
+        working-directory: ${{ github.workspace }}/website
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
