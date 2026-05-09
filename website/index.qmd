@@ -557,19 +557,69 @@ hero_script <- glue::glue(
       return String(value || '').replace(/\\s+/g, '').toLowerCase();
     }}
 
-    function syncYear(value) {{
-      if (!value) return;
+    function hasYearOption(value) {{
+      if (!value) return false;
+      return [].some.call(
+        document.querySelectorAll('[data-global-year] option'),
+        function(opt) {{ return opt.value === String(value); }}
+      );
+    }}
+
+    function getSelectedYear() {{
+      const select = document.querySelector('[data-global-year]');
+      return (select && select.value) || window.localStorage.getItem('cbr-selected-year') || defaultYear;
+    }}
+
+    function buildYearUrl(target, year) {{
+      const url = new URL(target, window.location.href);
+      url.searchParams.set('year', year);
+      return url.toString();
+    }}
+
+    function syncYearLinks(value) {{
+      document.querySelectorAll('a[href]').forEach(function(link) {{
+        const rawHref = link.getAttribute('href');
+        if (!rawHref || rawHref.charAt(0) === '#') return;
+        if (/^(mailto:|tel:|javascript:)/i.test(rawHref)) return;
+
+        const baseHref = link.dataset.yearHrefBase || rawHref;
+        if (!link.dataset.yearHrefBase) {{
+          link.dataset.yearHrefBase = rawHref;
+        }}
+
+        let url;
+        try {{
+          url = new URL(baseHref, window.location.href);
+        }} catch (error) {{
+          return;
+        }}
+
+        if (url.origin !== window.location.origin) return;
+        if (!/\\.html$/i.test(url.pathname)) return;
+
+        url.searchParams.set('year', value);
+        link.setAttribute('href', url.toString());
+      }});
+    }}
+
+    function syncYear(value, options) {{
+      if (!hasYearOption(value)) return;
       window.localStorage.setItem('cbr-selected-year', value);
       document.querySelectorAll('[data-global-year]').forEach(function(select) {{
         if ([].some.call(select.options, function(opt) {{ return opt.value === value; }})) {{
           select.value = value;
         }}
       }});
+      syncYearLinks(value);
+      if (!(options && options.updateUrl === false)) {{
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set('year', value);
+        window.history.replaceState({{}}, '', nextUrl.toString());
+      }}
     }}
 
     function getYear() {{
-      const select = document.querySelector('[data-global-year]');
-      return (select && select.value) || window.localStorage.getItem('cbr-selected-year') || defaultYear;
+      return getSelectedYear();
     }}
 
     function bindText(key, value) {{
@@ -605,12 +655,17 @@ hero_script <- glue::glue(
       }});
       if (match) {{
         syncYear(getYear());
-        window.location.href = match.url;
+        window.location.href = buildYearUrl(match.url, getYear());
       }}
     }}
 
     document.addEventListener('DOMContentLoaded', function() {{
-      const year = window.localStorage.getItem('cbr-selected-year') || defaultYear;
+      const urlYear = new URLSearchParams(window.location.search).get('year');
+      const storedYear = window.localStorage.getItem('cbr-selected-year');
+      const year =
+        (hasYearOption(urlYear) && urlYear) ||
+        (hasYearOption(storedYear) && storedYear) ||
+        defaultYear;
       syncYear(year);
       renderFocus(year);
 
