@@ -723,6 +723,87 @@ h3 {
   padding-bottom: 0;
 }
 
+.table-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.table-scroll-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.table-scroll-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(23, 50, 74, 0.06);
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table-scroll-region {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(23, 50, 74, 0.28) transparent;
+}
+
+.table-scroll-region:focus-visible {
+  outline: 3px solid rgba(31, 93, 77, 0.34);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.table-scroll-region::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-scroll-region::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(23, 50, 74, 0.24);
+}
+
+.table-shell::before,
+.table-shell::after {
+  content: "";
+  position: absolute;
+  top: 52px;
+  bottom: 16px;
+  width: 22px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  z-index: 2;
+}
+
+.table-shell::before {
+  left: 18px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.table-shell::after {
+  right: 18px;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+}
+
+.table-shell.is-scrollable:not(.is-scrolled-start)::before {
+  opacity: 1;
+}
+
+.table-shell.is-scrollable:not(.is-scrolled-end)::after {
+  opacity: 1;
+}
+
 .rt-table {
   border: 1px solid var(--line) !important;
   border-top: 2px solid var(--line-strong) !important;
@@ -1972,6 +2053,22 @@ div[id] {
   .directory-grid,
   .directory-meta-grid {
     grid-template-columns: 1fr;
+  }
+
+  .table-scroll-meta {
+    justify-content: flex-start;
+  }
+
+  .table-scroll-hint {
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+  }
+
+  .table-shell::before,
+  .table-shell::after {
+    top: 50px;
+    bottom: 14px;
+    width: 18px;
   }
 
   .anchor-nav {
