@@ -57,6 +57,41 @@ LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
 global_mean <- mean(rating_hist$rating)
 global_sd   <- sd(rating_hist$rating)
 to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
+
+# デフォルト表示年度（このチームで最新の試合がある年）
+available_yrs <- sort(unique(year(
+  game_results$gamedate[game_results$team1 == TEAM | game_results$team2 == TEAM]
+)), decreasing = TRUE)
+default_yr <- if (length(available_yrs) > 0) as.character(available_yrs[1]) else as.character(current_year)
+
+# 過去統計（全期間）
+team_hist_all <- rating_hist |> filter(team == TEAM) |> arrange(date)
+stats_max <- if (nrow(team_hist_all) > 0) round(max(team_hist_all$display_rating), 1) else NA
+stats_min <- if (nrow(team_hist_all) > 0) round(min(team_hist_all$display_rating), 1) else NA
+stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_rating), 1) else NA
+
+# シーズン背景色（春=薄緑、秋=薄赤）
+season_bg_df <- game_results |>
+  filter(team1 == TEAM | team2 == TEAM) |>
+  select(gamedate, season) |>
+  group_by(yr_val = year(gamedate), season) |>
+  summarise(bg_start = min(gamedate), bg_end = max(gamedate), .groups = "drop") |>
+  mutate(bg_fill = if_else(season == "春", "rgba(0,160,80,0.07)", "rgba(200,0,50,0.07)"))
+
+# シーズン終了時レート
+season_end <- game_results |>
+  filter(team1 == TEAM | team2 == TEAM) |>
+  mutate(yr_val = year(gamedate)) |>
+  group_by(yr_val, season) |>
+  summarise(end_date = max(gamedate), .groups = "drop") |>
+  left_join(
+    rating_hist |> filter(team == TEAM) |> select(date, display_rating),
+    by = c("end_date" = "date")
+  ) |>
+  filter(!is.na(display_rating)) |>
+  arrange(desc(yr_val), desc(season == "秋")) |>
+  mutate(label = paste0(yr_val, " ", season), rating = round(display_rating, 1)) |>
+  select(label, rating)
 ```
 
 <!-- ヘッダー (チームカラー accent bar) -->
@@ -79,6 +114,22 @@ to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
   </div>
 </div>
 
+```{r stats-row}
+#| output: asis
+if (!is.na(stats_max)) {
+  cat(sprintf(
+    '<div style="display:flex;gap:28px;padding:12px 0 28px;border-bottom:1px solid #E8E8E8;margin-bottom:0;">
+  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">最高レート</div>
+  <div style="font-size:1.2rem;font-weight:900;color:%s;">%s</div></div>
+  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">最低レート</div>
+  <div style="font-size:1.2rem;font-weight:900;">%s</div></div>
+  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">平均レート</div>
+  <div style="font-size:1.2rem;font-weight:900;">%s</div></div>
+</div>',
+    c1, stats_max, stats_min, stats_avg))
+}
+```
+
 ## レーティング推移
 
 ```{r rating-chart}
@@ -97,14 +148,16 @@ if (nrow(team_hist) > 0) {
       lapply(seq_len(nrow(gap_df)), function(i)
         list(bounds = list(as.character(gap_df$d_prev[i] + 1),
                            as.character(gap_df$d_next[i])))) else list()
-    sh <- if (nrow(gap_df) > 0)
-      lapply(seq_len(nrow(gap_df)), function(i)
-        list(type = "line", xref = "x", yref = "paper",
-             x0 = as.character(gap_df$d_next[i]),
-             x1 = as.character(gap_df$d_next[i]),
-             y0 = 0, y1 = 1,
-             line = list(color = "#CCCCCC", width = 1, dash = "dash"))) else list()
-  } else { rb <- list(); sh <- list() }
+  } else { rb <- list() }
+
+  season_shapes <- lapply(seq_len(nrow(season_bg_df)), function(i)
+    list(type = "rect", xref = "x", yref = "paper",
+         x0 = as.character(season_bg_df$bg_start[i]),
+         x1 = as.character(season_bg_df$bg_end[i]),
+         y0 = 0, y1 = 1,
+         fillcolor = season_bg_df$bg_fill[i],
+         line = list(width = 0),
+         layer = "below"))
 
   plot_ly(
     data      = team_hist,
@@ -124,6 +177,7 @@ if (nrow(team_hist) > 0) {
       gridcolor = "#EBEBEB",
       zeroline  = FALSE,
       rangebreaks = rb,
+      tickangle = -45,
       rangeselector = list(
         buttons = list(
           list(count = 1, label = "今年", step = "year", stepmode = "todate"),
@@ -134,8 +188,8 @@ if (nrow(team_hist) > 0) {
       rangeslider = list(visible = FALSE)
     ),
     yaxis  = list(title = "レート", gridcolor = "#EBEBEB", zeroline = FALSE),
-    shapes = sh,
-    margin = list(l = 60, r = 20, t = 20, b = 40),
+    shapes = season_shapes,
+    margin = list(l = 60, r = 20, t = 20, b = 60),
     paper_bgcolor = "white",
     plot_bgcolor  = "white",
     font = list(family = "Inter, Helvetica Neue, sans-serif")
@@ -202,7 +256,7 @@ tagList(
           tags$option(value = "", "全年度"),
           lapply(yrs, function(y) {
             opt <- tags$option(value = as.character(y), as.character(y))
-            if (y == current_year) tagAppendAttributes(opt, selected = NA) else opt
+            if (y == default_yr) tagAppendAttributes(opt, selected = NA) else opt
           })
         )
       }
@@ -261,10 +315,29 @@ tagList(
   elementId = "games-table"
   ),
   tags$script(HTML(sprintf(
-    'window.addEventListener("load",function(){Reactable.setFilter("games-table","yr","%s");});',
-    as.character(current_year)
+    '(function poll(){if(window.Reactable){Reactable.setFilter("games-table","yr","%s");}else{setTimeout(poll,50);}})();',
+    default_yr
   )))
 )
+```
+
+## シーズン別レート
+
+```{r season-ratings}
+if (nrow(season_end) > 0) {
+  reactable(
+    season_end,
+    pagination = FALSE,
+    highlight  = TRUE,
+    columns = list(
+      label  = colDef(name = "シーズン",      minWidth = 160),
+      rating = colDef(name = "終了時レート", width = 120, align = "right",
+                      cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v)))
+    )
+  )
+} else {
+  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">データがありません。</p>')
+}
 ```
 
 <div class="back-links">

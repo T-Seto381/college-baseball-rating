@@ -79,24 +79,26 @@ team_color_map <- setNames(league_team_info$c1, league_team_info$TeamShortName)
 team_name_map  <- setNames(league_team_info$TeamName, league_team_info$TeamShortName)
 ```
 
-<!-- ヘッダー (リーグ名 accent bar) -->
-<div style="border-bottom: 2px solid #111; padding-bottom: 14px; margin-bottom: 40px; padding-top: 28px;">
+```{r league-header}
+#| output: asis
+rank_text <- if (!is.na(league_rank_pos)) paste0("リーグ順位 ", league_rank_pos, " 位 / ", total_leagues, " リーグ") else "集計中"
+cat(sprintf(
+  '<div style="border-bottom: 2px solid #111; padding-bottom: 14px; margin-bottom: 40px; padding-top: 28px;">
   <div style="display:flex; justify-content:space-between; align-items:flex-end;">
     <div>
-      <div style="font-size:2.1rem; font-weight:900; letter-spacing:-0.04em; line-height:1; color:#111; margin-bottom:7px;">`r LEAGUE`</div>
-      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
-        所属チーム `r length(league_teams)` 校
-      </div>
+      <div style="font-size:2.1rem; font-weight:900; letter-spacing:-0.04em; line-height:1; color:#111; margin-bottom:7px;">%s</div>
+      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">所属チーム %d 校</div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:3px;">
-        `r if (!is.na(league_rank_pos)) paste0("リーグ順位 ", league_rank_pos, " 位 / ", total_leagues, " リーグ") else "集計中"`
-      </div>
-      <div style="font-size:2.7rem; font-weight:900; letter-spacing:-0.05em; line-height:1; color:#111;">`r league_avg_display`</div>
+      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:3px;">%s</div>
+      <div style="font-size:2.7rem; font-weight:900; letter-spacing:-0.05em; line-height:1; color:#111;">%s</div>
       <div style="font-size:0.67rem; color:#AAAAAA; text-transform:uppercase; letter-spacing:0.1em; margin-top:3px;">平均レート</div>
     </div>
   </div>
-</div>
+</div>',
+  LEAGUE, length(league_teams), rank_text, league_avg_display
+))
+```
 
 ## 今年度レーティング推移
 

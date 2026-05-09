@@ -202,6 +202,107 @@ reactable(
 )
 ```
 
+## 年度別ランキング
+
+```{r yearly-ranking}
+# 各年の最終試合時点でのレーティング
+yr_rank_data <- rating_hist |>
+  mutate(yr = as.character(year(date))) |>
+  filter(as.integer(yr) <= year(Sys.Date())) |>
+  group_by(yr, team) |>
+  slice_tail(n = 1) |>
+  ungroup() |>
+  group_by(yr) |>
+  arrange(desc(display_rating)) |>
+  mutate(yr_rank = row_number()) |>
+  ungroup() |>
+  left_join(teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+            by = c("team" = "TeamShortName")) |>
+  filter(!is.na(TeamName)) |>
+  mutate(display_rating = round(display_rating, 1)) |>
+  select(yr, yr_rank, team, TeamName, LeagueName, c1, display_rating)
+
+yr_default_home <- as.character(max(as.integer(unique(yr_rank_data$yr))))
+
+tagList(
+  reactable(
+    yr_rank_data,
+    filterable      = TRUE,
+    defaultPageSize = 10,
+    highlight       = TRUE,
+    columns = list(
+      yr = colDef(
+        name  = "年度",
+        width = 80,
+        align = "center",
+        show  = FALSE,
+        filterMethod = JS("(rows, columnId, filterValue) => {
+          if (!filterValue) return rows;
+          return rows.filter(row => String(row.values[columnId]) === filterValue);
+        }"),
+        filterInput = function(values, name) {
+          yrs <- sort(unique(values), decreasing = TRUE)
+          tags$select(
+            style    = "font-size:0.85rem; padding:4px 8px; margin-bottom:4px;",
+            onchange = sprintf(
+              "Reactable.setFilter('yr-ranking', '%s', event.target.value || undefined)", name
+            ),
+            lapply(yrs, function(y) {
+              opt <- tags$option(value = y, paste0(y, "年"))
+              if (y == yr_default_home) tagAppendAttributes(opt, selected = NA) else opt
+            })
+          )
+        }
+      ),
+      yr_rank = colDef(
+        name  = "順位",
+        width = 58,
+        align = "center",
+        cell  = function(v) tags$span(class = "rank-number", v)
+      ),
+      TeamName = colDef(
+        name     = "チーム",
+        minWidth = 140,
+        cell     = function(v, ri) {
+          row <- yr_rank_data[ri, ]
+          tags$div(
+            class = "team-name-cell",
+            tags$div(class = "team-color-bar", style = paste0("background:", row$c1)),
+            tags$a(
+              href  = paste0("university/", TEAM_SLUG[row$team], ".html"),
+              class = "team-name-link",
+              style = paste0("color:", row$c1),
+              v
+            )
+          )
+        }
+      ),
+      LeagueName = colDef(
+        name = "リーグ",
+        cell = function(v) {
+          if (is.na(v)) return(tags$span())
+          tags$a(href  = paste0("league/", LEAGUE_SLUG[v], ".html"),
+                 style = "text-decoration:none; font-size:0.82rem; color:#6B6B6B;", v)
+        }
+      ),
+      display_rating = colDef(
+        name  = "レート",
+        width = 90,
+        align = "right",
+        cell  = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      c1   = colDef(show = FALSE),
+      team = colDef(show = FALSE)
+    ),
+    elementId = "yr-ranking"
+  ),
+  tags$script(HTML(sprintf(
+    '(function poll(){if(window.Reactable){Reactable.setFilter("yr-ranking","yr","%s");}else{setTimeout(poll,50);}})();',
+    yr_default_home
+  )))
+)
+```
+
 ## リーグランキング
 
 ```{r league-ranking}
