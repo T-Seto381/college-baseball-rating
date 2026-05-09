@@ -96,12 +96,16 @@ global_sd <- sd(rating_hist$rating)
 to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
 
 team_hist_all <- rating_hist |>
-  filter(team == TEAM, year(date) >= 2001) |>
+  filter(team == TEAM, year(date) >= 2001, date <= Sys.Date()) |>
   arrange(date)
 
 stats_max <- if (nrow(team_hist_all) > 0) round(max(team_hist_all$display_rating), 1) else NA_real_
 stats_min <- if (nrow(team_hist_all) > 0) round(min(team_hist_all$display_rating), 1) else NA_real_
 stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_rating), 1) else NA_real_
+
+team_peak <- team_hist_all |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  mutate(peak_rating = round(display_rating, 1))
 
 season_bg_df <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
@@ -110,25 +114,50 @@ season_bg_df <- game_results |>
   summarise(bg_start = min(gamedate), bg_end = max(gamedate), .groups = "drop") |>
   mutate(bg_fill = if_else(season == "春", "rgba(31,93,77,0.07)", "rgba(191,29,53,0.07)"))
 
-season_end <- game_results |>
+season_end_dates <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   mutate(yr_val = year(gamedate)) |>
   group_by(yr_val, season) |>
   summarise(end_date = max(gamedate), .groups = "drop") |>
   filter(end_date <= Sys.Date()) |>
-  mutate(display_rating = map_dbl(end_date, function(d) {
-    snap <- rating_hist |> filter(team == TEAM, date <= d) |> slice_tail(n = 1)
-    if (nrow(snap) == 0) {
-      return(NA_real_)
-    }
-    snap$display_rating[[1]]
-  })) |>
-  filter(!is.na(display_rating)) |>
-  arrange(desc(yr_val), desc(season == "秋")) |>
-  mutate(label = paste0(yr_val, " ", season), rating = round(display_rating, 1)) |>
-  select(label, rating)
+  arrange(desc(yr_val), desc(season == "秋"))
 
-team_games <- game_results |>
+season_snapshots <- season_end_dates |>
+  mutate(snapshot = map(end_date, function(d) {
+    rating_hist |>
+      filter(date <= d) |>
+      group_by(team) |>
+      slice_tail(n = 1) |>
+      ungroup() |>
+      mutate(season_rank = rank(desc(display_rating), ties.method = "min"))
+  })) |>
+  unnest(snapshot)
+
+season_end <- season_snapshots |>
+  filter(team == TEAM) |>
+  arrange(desc(yr_val), desc(season == "秋")) |>
+  mutate(
+    yr = as.character(yr_val),
+    label = paste0(yr_val, " ", season),
+    rating = round(display_rating, 1)
+  ) |>
+  select(yr, yr_val, season, label, end_date, season_rank, rating)
+
+best_season_end <- season_end |>
+  slice_max(rating, n = 1, with_ties = FALSE)
+
+yearly_peak <- team_hist_all |>
+  mutate(yr = as.character(year(date))) |>
+  group_by(yr) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    yr,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+team_games_base <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   mutate(
     yr = as.character(year(gamedate)),
@@ -139,7 +168,9 @@ team_games <- game_results |>
     score_b = if_else(is_team1, score2, score1),
     rate_a = if_else(is_team1, r1_before, r2_before),
     rate_b = if_else(is_team1, r2_before, r1_before),
-    delta_own = if_else(is_team1, delta, -delta)
+    delta_own = if_else(is_team1, delta, -delta),
+    team_win_prob = if_else(is_team1, E1, 1 - E1),
+    result = case_when(score_a > score_b ~ "W", score_a < score_b ~ "L", TRUE ~ "D")
   ) |>
   left_join(
     teams_info |> select(TeamShortName, TeamName, c1),
@@ -153,7 +184,55 @@ team_games <- game_results |>
     disp_b = to_disp(rate_b),
     delta_disp = round(10 * delta_own / global_sd, 1),
     score_dash = ""
+  )
+
+top_upset_win <- team_games_base |>
+  filter(result == "W") |>
+  arrange(team_win_prob, desc(abs(rate_a - rate_b)), desc(gamedate)) |>
+  slice_head(n = 1)
+
+top_upset_loss <- team_games_base |>
+  filter(result == "L") |>
+  arrange(desc(team_win_prob), desc(abs(rate_a - rate_b)), desc(gamedate)) |>
+  slice_head(n = 1)
+
+year_best_win <- team_games_base |>
+  filter(result == "W") |>
+  group_by(yr) |>
+  arrange(team_win_prob, desc(abs(rate_a - rate_b)), desc(gamedate), .by_group = TRUE) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    upset_team = team_b,
+    upset_name = name_b,
+    upset_date = gamedate,
+    upset_win_prob = team_win_prob,
+    upset_score = paste0(score_a, " - ", score_b)
+  )
+
+season_year_summary <- season_end |>
+  transmute(
+    yr,
+    season_slot = if_else(season == "春", "spring", "fall"),
+    end_rank = season_rank,
+    end_rating = rating,
+    end_date
   ) |>
+  pivot_wider(
+    names_from = season_slot,
+    values_from = c(end_rank, end_rating, end_date),
+    names_glue = "{season_slot}_{.value}"
+  )
+
+year_summary <- tibble(yr = as.character(available_yrs)) |>
+  left_join(season_year_summary, by = "yr") |>
+  left_join(yearly_peak, by = "yr") |>
+  left_join(year_best_win, by = "yr") |>
+  mutate(year = as.integer(yr)) |>
+  arrange(desc(year))
+
+team_games <- team_games_base |>
   arrange(desc(gamedate)) |>
   select(
     yr, gamedate, gametype,
@@ -220,6 +299,11 @@ hero_script <- glue::glue(
     const targets = {search_targets_json};
     const defaultYear = '{default_yr}';
     const plotSelector = '#team-rating-chart .plotly, #team-rating-chart .js-plotly-plot';
+    const tableFilters = [
+      ['team-year-summary-table', 'yr'],
+      ['team-games-table', 'yr'],
+      ['team-season-table', 'yr']
+    ];
 
     function normalize(value) {{
       return String(value || '').replace(/\\s+/g, '').toLowerCase();
@@ -238,11 +322,13 @@ hero_script <- glue::glue(
     function applyYear(year) {{
       syncYear(year);
 
-      function updateTable() {{
+      function updateTables() {{
         if (window.Reactable) {{
-          Reactable.setFilter('team-games-table', 'yr', year);
+          tableFilters.forEach(function(target) {{
+            Reactable.setFilter(target[0], target[1], year);
+          }});
         }} else {{
-          setTimeout(updateTable, 100);
+          setTimeout(updateTables, 100);
         }}
       }}
 
@@ -261,7 +347,7 @@ hero_script <- glue::glue(
         }});
       }}
 
-      updateTable();
+      updateTables();
       updatePlot();
     }}
 
@@ -317,6 +403,44 @@ rank_str <- if (!is.na(current_rank)) {
 
 latest_season_value <- if (nrow(season_end) > 0) season_end$rating[[1]] else NA_real_
 latest_season_label <- if (nrow(season_end) > 0) season_end$label[[1]] else "データなし"
+peak_card_value <- if (nrow(team_peak) > 0) sprintf("%.1f", team_peak$peak_rating[[1]]) else "-"
+peak_card_note <- if (nrow(team_peak) > 0) {
+  paste0(format(team_peak$date[[1]], "%Y/%m/%d"), " に到達")
+} else {
+  "記録なし"
+}
+best_season_value <- if (nrow(best_season_end) > 0) sprintf("%.1f", best_season_end$rating[[1]]) else "-"
+best_season_note <- if (nrow(best_season_end) > 0) {
+  paste0(best_season_end$label[[1]], " の終了時点")
+} else {
+  "記録なし"
+}
+upset_win_value <- if (nrow(top_upset_win) > 0) top_upset_win$name_b[[1]] else "記録なし"
+upset_win_note <- if (nrow(top_upset_win) > 0) {
+  paste0(
+    format(top_upset_win$gamedate[[1]], "%Y/%m/%d"),
+    "  ",
+    top_upset_win$score_a[[1]], "-",
+    top_upset_win$score_b[[1]],
+    "  勝率 ",
+    sprintf("%.1f%%", 100 * top_upset_win$team_win_prob[[1]])
+  )
+} else {
+  "該当試合なし"
+}
+upset_loss_value <- if (nrow(top_upset_loss) > 0) top_upset_loss$name_b[[1]] else "記録なし"
+upset_loss_note <- if (nrow(top_upset_loss) > 0) {
+  paste0(
+    format(top_upset_loss$gamedate[[1]], "%Y/%m/%d"),
+    "  ",
+    top_upset_loss$score_a[[1]], "-",
+    top_upset_loss$score_b[[1]],
+    "  勝率 ",
+    sprintf("%.1f%%", 100 * top_upset_loss$team_win_prob[[1]])
+  )
+} else {
+  "該当試合なし"
+}
 
 tagList(
   div(
@@ -390,11 +514,162 @@ tagList(
     ),
     search_options,
     tags$script(HTML(hero_script))
+  ),
+  div(
+    class = "history-snapshot-grid",
+    div(
+      class = "history-snapshot-card",
+      div(class = "history-snapshot-label", "歴代ピーク"),
+      div(class = "history-snapshot-value", peak_card_value),
+      div(class = "history-snapshot-note", peak_card_note)
+    ),
+    div(
+      class = "history-snapshot-card",
+      div(class = "history-snapshot-label", "最高シーズン終点"),
+      div(class = "history-snapshot-value", best_season_value),
+      div(class = "history-snapshot-note", best_season_note)
+    ),
+    div(
+      class = "history-snapshot-card",
+      div(class = "history-snapshot-label", "最大アップセット勝利"),
+      div(class = "history-snapshot-value", upset_win_value),
+      div(class = "history-snapshot-note", upset_win_note)
+    ),
+    div(
+      class = "history-snapshot-card",
+      div(class = "history-snapshot-label", "最大番狂わせ敗戦"),
+      div(class = "history-snapshot-value", upset_loss_value),
+      div(class = "history-snapshot-note", upset_loss_note)
+    )
+  ),
+  div(
+    class = "anchor-nav",
+    tags$a(href = "#year-summary", class = "anchor-link", "年度別サマリー"),
+    tags$a(href = "#rating-trend", class = "anchor-link", "レーティング推移"),
+    tags$a(href = "#games", class = "anchor-link", "試合一覧"),
+    tags$a(href = "#season-ratings", class = "anchor-link", "シーズン終点")
   )
 )
 ```
 
-## レーティング推移
+## 年度別サマリー {#year-summary}
+
+<div class="copy-shell">
+  <p class="section-lead">選択年度のピーク、春秋のシーズン終点、最大アップセット勝利を1行で確認できます。どの年に強さが跳ねたかを、試合一覧や推移グラフへ移る前に把握するための入口です。</p>
+  <p class="record-note">表示年度を切り替えると、この表と下の試合一覧、シーズン終了時レートが連動します。</p>
+</div>
+
+```{r year-summary-table}
+peak_summary_cell <- function(rating_val, date_val) {
+  if (is.na(rating_val) || is.na(date_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f", rating_val)),
+    tags$span(class = "rating-badge", format(date_val, "%m/%d"))
+  )
+}
+
+season_summary_cell <- function(rank_val, rating_val, date_val) {
+  if (is.na(rank_val) || is.na(rating_val) || is.na(date_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f", rating_val)),
+    tags$span(class = "rating-badge", paste0("#", rank_val, " / ", format(date_val, "%m/%d")))
+  )
+}
+
+upset_summary_cell <- function(opp_name, opp_team, date_val, prob_val, scoreline) {
+  if (is.na(opp_name) || is.na(opp_team) || is.na(date_val) || is.na(prob_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$a(href = team_url(opp_team), class = "team-link-inline", opp_name),
+    tags$span(
+      class = "rating-badge",
+      paste0(format(date_val, "%m/%d"), "  ", scoreline, "  勝率 ", sprintf("%.1f%%", 100 * prob_val))
+    )
+  )
+}
+
+if (nrow(year_summary) > 0) {
+  div(
+    class = "table-shell",
+    reactable(
+      year_summary,
+      filterable = TRUE,
+      pagination = FALSE,
+      highlight = TRUE,
+      elementId = "team-year-summary-table",
+      columns = list(
+        yr = colDef(show = FALSE, filterable = TRUE),
+        year = colDef(name = "年", width = 72, align = "center", filterable = FALSE),
+        peak_rating = colDef(
+          name = "年間ピーク",
+          minWidth = 130,
+          filterable = FALSE,
+          cell = function(v, ri) peak_summary_cell(v, year_summary$peak_date[[ri]])
+        ),
+        spring_end_rating = colDef(
+          name = "春終点",
+          minWidth = 130,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            season_summary_cell(
+              year_summary$spring_end_rank[[ri]],
+              v,
+              year_summary$spring_end_date[[ri]]
+            )
+          }
+        ),
+        fall_end_rating = colDef(
+          name = "秋終点",
+          minWidth = 130,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            season_summary_cell(
+              year_summary$fall_end_rank[[ri]],
+              v,
+              year_summary$fall_end_date[[ri]]
+            )
+          }
+        ),
+        upset_name = colDef(
+          name = "最大アップセット勝利",
+          minWidth = 220,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            upset_summary_cell(
+              v,
+              year_summary$upset_team[[ri]],
+              year_summary$upset_date[[ri]],
+              year_summary$upset_win_prob[[ri]],
+              year_summary$upset_score[[ri]]
+            )
+          }
+        ),
+        peak_date = colDef(show = FALSE),
+        spring_end_rank = colDef(show = FALSE),
+        spring_end_date = colDef(show = FALSE),
+        fall_end_rank = colDef(show = FALSE),
+        fall_end_date = colDef(show = FALSE),
+        upset_team = colDef(show = FALSE),
+        upset_date = colDef(show = FALSE),
+        upset_win_prob = colDef(show = FALSE),
+        upset_score = colDef(show = FALSE)
+      )
+    )
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる年度別サマリーデータがありません。"))
+}
+```
+
+## レーティング推移 {#rating-trend}
 
 ```{r rating-chart}
 team_hist <- rating_hist |>
@@ -470,7 +745,7 @@ if (nrow(team_hist) > 0) {
 }
 ```
 
-## 試合一覧
+## 試合一覧 {#games}
 
 ```{r games-table}
 div(
@@ -563,7 +838,7 @@ div(
 )
 ```
 
-## シーズン終了時レート
+## シーズン終了時レート {#season-ratings}
 
 ```{r season-ratings}
 if (nrow(season_end) > 0) {
@@ -571,16 +846,36 @@ if (nrow(season_end) > 0) {
     class = "table-shell",
     reactable(
       season_end,
+      filterable = TRUE,
       pagination = FALSE,
       highlight = TRUE,
+      elementId = "team-season-table",
       columns = list(
-        label = colDef(name = "シーズン", minWidth = 140),
+        yr = colDef(show = FALSE, filterable = TRUE),
+        label = colDef(name = "シーズン", minWidth = 120, filterable = FALSE),
+        season_rank = colDef(
+          name = "順位",
+          width = 70,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v) tags$span(class = "rank-number", v)
+        ),
         rating = colDef(
           name = "終了時レート",
-          width = 120,
+          width = 108,
           align = "right",
+          filterable = FALSE,
           cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
-        )
+        ),
+        end_date = colDef(
+          name = "終了日",
+          width = 118,
+          align = "right",
+          filterable = FALSE,
+          format = colFormat(date = TRUE, locales = "ja-JP")
+        ),
+        yr_val = colDef(show = FALSE),
+        season = colDef(show = FALSE)
       )
     )
   )
@@ -588,6 +883,10 @@ if (nrow(season_end) > 0) {
   div(class = "copy-shell", tags$p("表示できるシーズンデータがありません。"))
 }
 ```
+
+<div class="copy-shell">
+  <p class="record-note">春秋ごとの終点記録を順位付きで残しています。年度選択を変えると該当年のみ表示されます。</p>
+</div>
 
 <div class="back-links">
   <a href="../index.html" class="back-link">&#8592; ランキングに戻る</a>
