@@ -193,6 +193,23 @@ season_focus <- season_leaders |>
     fall_note = leader_note_fall
   )
 
+season_title_board <- season_leaders |>
+  arrange(team, desc(display_rating), desc(end_date)) |>
+  group_by(team, TeamName, LeagueName, c1) |>
+  summarise(
+    season_titles = n(),
+    title_years = n_distinct(year),
+    latest_title = max(year),
+    best_title_season = first(season_label),
+    best_title_rating = round(max(display_rating), 1),
+    .groups = "drop"
+  ) |>
+  arrange(desc(season_titles), desc(best_title_rating), desc(latest_title), TeamName)
+
+season_record_board <- season_rankings |>
+  arrange(desc(display_rating), desc(end_date), TeamName) |>
+  slice_head(n = 10)
+
 team_best_season <- season_snapshots |>
   group_by(team) |>
   slice_max(display_rating, n = 1, with_ties = FALSE) |>
@@ -325,6 +342,7 @@ top_season_record <- season_rankings |>
   arrange(desc(display_rating), desc(end_date)) |>
   slice_head(n = 1)
 top_upset <- upset_games |> slice_head(n = 1)
+upset_record_board <- upset_games |> slice_head(n = 10)
 ```
 
 ```{r hero}
@@ -577,6 +595,7 @@ tagList(
     ),
     div(
       class = "anchor-nav",
+      tags$a(href = "#record-board", class = "anchor-link", "記録ボード"),
       tags$a(href = "#season-leaders", class = "anchor-link", "シーズン首位"),
       tags$a(href = "#season-rankings", class = "anchor-link", "シーズン終点"),
       tags$a(href = "#team-peaks", class = "anchor-link", "大学別ピーク"),
@@ -611,6 +630,201 @@ tagList(
       div(class = "route-copy", "歴代比較に使っているレーティングの前提と指標の意味を整理しています。"),
       div(class = "route-link", "方法を見る →")
     )
+  )
+)
+```
+
+## 記録ボード {#record-board}
+
+<div class="copy-shell">
+  <p class="section-lead">長期的な強さをすぐ確認できるように、シーズン終点での首位回数、歴代最強のシーズン終点、最大アップセットを別枠でまとめています。今後リーグが増えても同じ枠組みで横断比較できる記録レイヤーです。</p>
+</div>
+
+```{r record-board}
+record_team_cell <- function(name, team, color) {
+  team_link_cell(name, team, color)
+}
+
+record_upset_matchup <- function(winner_name, winner_team, winner_color, loser_name, loser_team, loser_color) {
+  tags$div(
+    class = "record-matchup",
+    tags$a(
+      href = team_url(winner_team),
+      class = "team-link-inline",
+      style = paste0("color:", winner_color),
+      winner_name
+    ),
+    tags$span(class = "record-vs", "vs"),
+    tags$a(
+      href = team_url(loser_team),
+      class = "team-link-inline",
+      style = paste0("color:", loser_color),
+      loser_name
+    )
+  )
+}
+
+tagList(
+  div(
+    class = "record-grid",
+    div(
+      class = "record-panel",
+      div(class = "record-panel-label", "Dynasty"),
+      h3(class = "record-panel-title", "終点首位回数ランキング"),
+      p(
+        class = "record-panel-copy",
+        "春秋シーズンの終点で首位だった回数を集計し、どの大学が長く上位を維持したかを見える化しています。"
+      ),
+      if (nrow(season_title_board) > 0) {
+        reactable(
+          season_title_board,
+          pagination = FALSE,
+          highlight = TRUE,
+          columns = list(
+            TeamName = colDef(
+              name = "大学",
+              minWidth = 170,
+              cell = function(v, ri) {
+                row <- season_title_board[ri, ]
+                record_team_cell(v, row$team, row$c1)
+              }
+            ),
+            season_titles = colDef(name = "首位回数", width = 82, align = "center"),
+            title_years = colDef(name = "首位年数", width = 82, align = "center"),
+            latest_title = colDef(name = "最新年", width = 82, align = "center"),
+            best_title_rating = colDef(
+              name = "最高終点",
+              width = 92,
+              align = "right",
+              cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+            ),
+            best_title_season = colDef(name = "最高季", minWidth = 108),
+            team = colDef(show = FALSE),
+            LeagueName = colDef(show = FALSE),
+            c1 = colDef(show = FALSE)
+          )
+        )
+      } else {
+        div(class = "record-empty", "表示できる記録がありません。")
+      }
+    ),
+    div(
+      class = "record-panel",
+      div(class = "record-panel-label", "Top Seasons"),
+      h3(class = "record-panel-title", "歴代最強シーズン終点"),
+      p(
+        class = "record-panel-copy",
+        "シーズン終了日時点のレートを高い順に並べています。ピーク日だけでなく、春秋の終点でどこまで到達したかを比較する表です。"
+      ),
+      if (nrow(season_record_board) > 0) {
+        reactable(
+          season_record_board,
+          pagination = FALSE,
+          highlight = TRUE,
+          columns = list(
+            season_label = colDef(name = "シーズン", width = 110),
+            TeamName = colDef(
+              name = "大学",
+              minWidth = 160,
+              cell = function(v, ri) {
+                row <- season_record_board[ri, ]
+                record_team_cell(v, row$team, row$c1)
+              }
+            ),
+            display_rating = colDef(
+              name = "終了時レート",
+              width = 102,
+              align = "right",
+              cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+            ),
+            end_date = colDef(
+              name = "終了日",
+              width = 108,
+              align = "right",
+              format = colFormat(date = TRUE, locales = "ja-JP")
+            ),
+            LeagueName = colDef(
+              name = "リーグ",
+              minWidth = 96,
+              cell = function(v) tags$a(href = league_url(v), class = "team-link-inline", v)
+            ),
+            yr = colDef(show = FALSE),
+            season_rank = colDef(show = FALSE),
+            team = colDef(show = FALSE),
+            c1 = colDef(show = FALSE)
+          )
+        )
+      } else {
+        div(class = "record-empty", "表示できる記録がありません。")
+      }
+    )
+  ),
+  div(
+    class = "record-panel record-panel-wide",
+    div(class = "record-panel-label", "Upsets"),
+    h3(class = "record-panel-title", "歴代最大アップセット"),
+    p(
+      class = "record-panel-copy",
+      "事前勝率が低かった勝利だけを抜き出し、番狂わせの大きさ順に並べています。年度フィルタとは独立した全期間の記録ボードです。"
+    ),
+    if (nrow(upset_record_board) > 0) {
+      reactable(
+        upset_record_board,
+        pagination = FALSE,
+        highlight = TRUE,
+        columns = list(
+          gamedate = colDef(
+            name = "日時",
+            width = 108,
+            align = "right",
+            format = colFormat(date = TRUE, locales = "ja-JP")
+          ),
+          underdog_name = colDef(
+            name = "勝った側",
+            minWidth = 210,
+            cell = function(v, ri) {
+              row <- upset_record_board[ri, ]
+              record_upset_matchup(
+                winner_name = v,
+                winner_team = row$underdog,
+                winner_color = row$underdog_c1,
+                loser_name = row$favorite_name,
+                loser_team = row$favorite,
+                loser_color = row$favorite_c1
+              )
+            }
+          ),
+          scoreline = colDef(name = "スコア", width = 82, align = "center"),
+          underdog_win_prob = colDef(
+            name = "事前勝率",
+            width = 92,
+            align = "right",
+            cell = function(v) tags$span(class = "rating-badge", sprintf("%.1f%%", 100 * v))
+          ),
+          rating_gap = colDef(
+            name = "事前差",
+            width = 82,
+            align = "right",
+            cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+          ),
+          delta_disp = colDef(
+            name = "変動幅",
+            width = 82,
+            align = "right",
+            cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+          ),
+          gametype = colDef(name = "試合種別", minWidth = 116),
+          yr = colDef(show = FALSE),
+          underdog = colDef(show = FALSE),
+          favorite = colDef(show = FALSE),
+          favorite_name = colDef(show = FALSE),
+          underdog_c1 = colDef(show = FALSE),
+          favorite_c1 = colDef(show = FALSE)
+        )
+      )
+    } else {
+      div(class = "record-empty", "表示できる記録がありません。")
+    }
   )
 )
 ```
