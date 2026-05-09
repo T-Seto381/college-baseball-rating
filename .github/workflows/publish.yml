@@ -58,10 +58,6 @@ jobs:
         run: Rscript 01_Code/05_rating_model.R
         working-directory: ${{ github.workspace }}
 
-      - name: Generate individual pages
-        run: Rscript generate_pages.R
-        working-directory: ${{ github.workspace }}/website
-
       - name: Render Quarto website
         run: quarto render
         working-directory: ${{ github.workspace }}/website

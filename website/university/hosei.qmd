@@ -1,0 +1,248 @@
+---
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+library(tidyverse)
+library(reactable)
+library(plotly)
+library(htmltools)
+library(lubridate)
+
+TEAM <- "法政"
+
+final_ratings <- read_csv("../../data_out/ratings/final_ratings.csv",
+                           show_col_types = FALSE) |>
+  mutate(date = as.Date(date))
+rating_hist   <- read_csv("../../data_out/ratings/rating_history.csv",
+                           show_col_types = FALSE) |>
+  mutate(date = as.Date(date))
+game_results  <- read_csv("../../data_out/ratings/game_results_with_ratings.csv",
+                           show_col_types = FALSE) |>
+  mutate(gamedate = as.Date(gamedate))
+teams_info    <- readxl::read_excel("../../data_out/teamdata.xlsx") |>
+  mutate(
+    c1 = paste0("#", ColorCode1),
+    c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
+    c3 = paste0("#", if_else(is.na(ColorCode3),
+                             if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+                             ColorCode3))
+  )
+
+# このチームの情報
+team_info      <- teams_info |> filter(TeamShortName == TEAM) |> slice(1)
+team_full_name <- if (nrow(team_info) > 0) team_info$TeamName   else TEAM
+league_name    <- if (nrow(team_info) > 0) team_info$LeagueName else "不明"
+c1 <- if (nrow(team_info) > 0) team_info$c1 else "#111111"
+c2 <- if (nrow(team_info) > 0) team_info$c2 else "#FFFFFF"
+
+# レートと順位
+all_ranked <- final_ratings |>
+  arrange(rank)
+team_row       <- all_ranked |> filter(team == TEAM)
+current_rating <- if (nrow(team_row) > 0) team_row$display_rating[1] else NA
+current_rank   <- if (nrow(team_row) > 0) team_row$rank[1] else NA
+total_teams    <- nrow(all_ranked)
+
+current_year <- max(year(game_results$gamedate))
+
+TEAM_SLUG <- c(
+  "東大"   = "todai",  "明治" = "meiji", "慶應"   = "keio",
+  "早稲田" = "waseda", "立教" = "rikkyo", "法政"  = "hosei"
+)
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
+# 全期間平均・標準偏差（ゲームレート表示用）
+global_mean <- mean(rating_hist$rating)
+global_sd   <- sd(rating_hist$rating)
+to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
+```
+
+<!-- ヘッダー (チームカラー accent bar) -->
+<div style="border-left: 5px solid `r c1`; padding-left: 18px; margin-bottom: 40px; padding-top: 28px; padding-bottom: 22px; border-bottom: 1px solid #E8E8E8;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+    <div>
+      <div style="font-size:2.1rem; font-weight:900; letter-spacing:-0.04em; line-height:1; color:`r c1`; margin-bottom:7px;">`r team_full_name`</div>
+      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
+        <a href="../league/`r LEAGUE_SLUG[league_name]`.html"
+           style="color:#6B6B6B; text-decoration:none;">`r league_name`</a>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:3px;">
+        `r if (!is.na(current_rank)) paste0("全国 ", current_rank, " 位 / ", total_teams, " チーム") else "集計中"`
+      </div>
+      <div style="font-size:2.7rem; font-weight:900; letter-spacing:-0.05em; line-height:1; color:`r c1`;">`r if (!is.na(current_rating)) current_rating else "-"`</div>
+      <div style="font-size:0.67rem; color:#AAAAAA; text-transform:uppercase; letter-spacing:0.1em; margin-top:3px;">レート</div>
+    </div>
+  </div>
+</div>
+
+## レーティング推移
+
+```{r rating-chart}
+team_hist <- rating_hist |>
+  filter(team == TEAM) |>
+  arrange(date)
+
+if (nrow(team_hist) > 0) {
+  plot_ly(
+    data      = team_hist,
+    x         = ~date,
+    y         = ~display_rating,
+    type      = "scatter",
+    mode      = "lines+markers",
+    name      = team_full_name,
+    line      = list(color = c1, width = 2.5),
+    marker    = list(color = c1, size = 4, line = list(color = c2, width = 1.5)),
+    text      = ~paste0(format(date, "%Y/%m/%d"), "<br>",
+                        "レート: ", round(display_rating, 1)),
+    hoverinfo = "text"
+  ) |> layout(
+    xaxis = list(
+      title = "",
+      gridcolor = "#EBEBEB",
+      zeroline  = FALSE,
+      rangeselector = list(
+        buttons = list(
+          list(count = 1, label = "今年", step = "year", stepmode = "todate"),
+          list(count = 5, label = "5年", step = "year", stepmode = "backward"),
+          list(step = "all", label = "全期間")
+        )
+      ),
+      rangeslider = list(visible = FALSE)
+    ),
+    yaxis  = list(title = list(text = "レ<br>ー<br>ト"), gridcolor = "#EBEBEB", zeroline = FALSE),
+    margin = list(l = 60, r = 20, t = 20, b = 40),
+    paper_bgcolor = "white",
+    plot_bgcolor  = "white",
+    font = list(family = "Inter, Helvetica Neue, sans-serif")
+  )
+} else {
+  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">試合データがありません。</p>')
+}
+```
+
+## 試合結果
+
+```{r games-table}
+team_games <- game_results |>
+  filter(team1 == TEAM | team2 == TEAM) |>
+  mutate(
+    is_team1  = (team1 == TEAM),
+    opp       = if_else(is_team1, team2, team1),
+    score_a   = if_else(is_team1, score1, score2),
+    score_b   = if_else(is_team1, score2, score1),
+    rate_a    = if_else(is_team1, r1_before, r2_before),
+    rate_b    = if_else(is_team1, r2_before, r1_before),
+    delta_own = if_else(is_team1, delta, -delta),
+    result    = case_when(score_a > score_b ~ "W",
+                          score_a < score_b ~ "L",
+                          TRUE              ~ "D"),
+    yr        = as.character(year(gamedate))
+  ) |>
+  left_join(teams_info |> select(TeamShortName, TeamName, c1),
+            by = c("opp" = "TeamShortName")) |>
+  rename(opp_full = TeamName, opp_c1 = c1) |>
+  mutate(
+    disp_a     = to_disp(rate_a),
+    disp_b     = to_disp(rate_b),
+    delta_disp = round(10 * delta_own / global_sd, 1)
+  ) |>
+  arrange(desc(gamedate)) |>
+  select(yr, gamedate, gametype, result, disp_a, score_a, score_b,
+         opp_full, opp_c1, disp_b, opp, delta_disp)
+
+reactable(
+  team_games,
+  filterable      = TRUE,
+  defaultFiltered = list(yr = as.character(current_year)),
+  defaultPageSize = 15,
+  showPageSizeOptions = TRUE,
+  pageSizeOptions     = c(15, 50, 200),
+  highlight = TRUE,
+  columns = list(
+    yr = colDef(
+      name  = "年度",
+      width = 72,
+      align = "center",
+      filterMethod = JS("(rows, columnId, filterValue) => {
+        if (!filterValue) return rows;
+        return rows.filter(row => String(row.values[columnId]) === filterValue);
+      }"),
+      filterInput = function(values, name) {
+        yrs <- sort(unique(values), decreasing = TRUE)
+        tags$select(
+          style    = "width:100%; font-size:0.8rem;",
+          onchange = sprintf(
+            "Reactable.setFilter('games-table', '%s', event.target.value || undefined)", name
+          ),
+          tags$option(value = "", "全年度"),
+          lapply(yrs, function(y) {
+            opt <- tags$option(value = as.character(y), as.character(y))
+            if (y == current_year) tagAppendAttributes(opt, selected = NA) else opt
+          })
+        )
+      }
+    ),
+    gamedate = colDef(name = "日付", width = 108,
+                      format = colFormat(date = TRUE, locales = "ja-JP")),
+    gametype = colDef(name = "種別", width = 120),
+    result   = colDef(
+      name  = "結果", width = 55, align = "center",
+      cell  = function(v) {
+        cls <- switch(v, W = "result-w", L = "result-l", "result-d")
+        sym <- switch(v, W = "\u25cb", L = "\u25cf", "\u25b3")
+        tags$span(class = cls, sym)
+      }
+    ),
+    disp_a  = colDef(name = "自レート", width = 90, align = "right",
+                     format = colFormat(digits = 1)),
+    score_a = colDef(
+      name = "得点", width = 60, align = "center",
+      style = function(v, ri) {
+        if (!is.na(v) && v > team_games$score_b[ri])
+          "font-weight:900; font-size:1rem;" else "color:#AAA;"
+      }
+    ),
+    score_b = colDef(
+      name = "失点", width = 60, align = "center",
+      style = function(v, ri) {
+        if (!is.na(v) && v > team_games$score_a[ri])
+          "font-weight:900; font-size:1rem;" else "color:#AAA;"
+      }
+    ),
+    delta_disp = colDef(
+      name  = "変動", width = 72, align = "right",
+      cell  = function(v) {
+        if (is.na(v)) return(tags$span())
+        cls <- if (v > 0) "change-up" else if (v < 0) "change-down" else "change-none"
+        fmt <- if (v > 0) paste0("+", sprintf("%.1f", v)) else sprintf("%.1f", v)
+        tags$span(class = cls, fmt)
+      }
+    ),
+    opp_full = colDef(
+      name = "対戦相手",
+      cell = function(v, ri) {
+        row <- team_games[ri, ]
+        tags$span(
+          tags$a(href  = paste0(TEAM_SLUG[row$opp], ".html"),
+                 style = paste0("font-weight:700; text-decoration:none; color:", row$opp_c1),
+                 v),
+          tags$span(class = "rating-badge", paste0("(", row$disp_b, ")"))
+        )
+      }
+    ),
+    opp_c1 = colDef(show = FALSE), disp_b = colDef(show = FALSE),
+    opp    = colDef(show = FALSE)
+  ),
+  elementId = "games-table"
+)
+```
+
+<div class="back-links">
+  <a href="../index.html"       class="back-link">&#8592; ランキングに戻る</a>
+  <a href="../methodology.html" class="back-link">&#8594; 計算方法の詳細</a>
+</div>
