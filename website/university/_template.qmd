@@ -76,41 +76,40 @@ to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
   </div>
 </div>
 
-## 今年度レーティング推移
+## レーティング推移
 
 ```{r rating-chart}
 team_hist <- rating_hist |>
-  filter(team == TEAM, year(date) == current_year) |>
+  filter(team == TEAM) |>
   arrange(date)
 
-all_dates_yr <- sort(unique(rating_hist$date[year(rating_hist$date) == current_year]))
-
-rank_by_date <- map_dfr(all_dates_yr, function(d) {
-  snap <- rating_hist |>
-    filter(date <= d) |>
-    group_by(team) |> slice_tail(n = 1) |> ungroup() |>
-    arrange(desc(display_rating)) |>
-    mutate(rank = row_number())
-  snap |> filter(team == TEAM) |>
-    transmute(date = d, rank, display_rating)
-}) |> filter(!is.na(rank))
-
-if (nrow(rank_by_date) > 0) {
+if (nrow(team_hist) > 0) {
   plot_ly(
-    data      = rank_by_date,
+    data      = team_hist,
     x         = ~date,
     y         = ~display_rating,
     type      = "scatter",
     mode      = "lines+markers",
     name      = team_full_name,
     line      = list(color = c1, width = 2.5),
-    marker    = list(color = c1, size = 5, line = list(color = c2, width = 1.5)),
+    marker    = list(color = c1, size = 4, line = list(color = c2, width = 1.5)),
     text      = ~paste0(format(date, "%Y/%m/%d"), "<br>",
-                        "レート: ", round(display_rating, 1), "<br>",
-                        "順位: ", rank, "位"),
+                        "レート: ", round(display_rating, 1)),
     hoverinfo = "text"
   ) |> layout(
-    xaxis  = list(title = "", gridcolor = "#EBEBEB", zeroline = FALSE),
+    xaxis = list(
+      title = "",
+      gridcolor = "#EBEBEB",
+      zeroline  = FALSE,
+      rangeselector = list(
+        buttons = list(
+          list(count = 1, label = "今年", step = "year", stepmode = "todate"),
+          list(count = 5, label = "5年", step = "year", stepmode = "backward"),
+          list(step = "all", label = "全期間")
+        )
+      ),
+      rangeslider = list(visible = FALSE)
+    ),
     yaxis  = list(title = list(text = "レ<br>ー<br>ト"), gridcolor = "#EBEBEB", zeroline = FALSE),
     margin = list(l = 60, r = 20, t = 20, b = 40),
     paper_bgcolor = "white",
@@ -118,15 +117,15 @@ if (nrow(rank_by_date) > 0) {
     font = list(family = "Inter, Helvetica Neue, sans-serif")
   )
 } else {
-  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">今年度の試合データがありません。</p>')
+  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">試合データがありません。</p>')
 }
 ```
 
-## 今年度の試合
+## 試合結果
 
 ```{r games-table}
 team_games <- game_results |>
-  filter(year == current_year, team1 == TEAM | team2 == TEAM) |>
+  filter(team1 == TEAM | team2 == TEAM) |>
   mutate(
     is_team1  = (team1 == TEAM),
     opp       = if_else(is_team1, team2, team1),
@@ -137,7 +136,8 @@ team_games <- game_results |>
     delta_own = if_else(is_team1, delta, -delta),
     result    = case_when(score_a > score_b ~ "W",
                           score_a < score_b ~ "L",
-                          TRUE              ~ "D")
+                          TRUE              ~ "D"),
+    yr        = as.character(year(gamedate))
   ) |>
   left_join(teams_info |> select(TeamShortName, TeamName, c1),
             by = c("opp" = "TeamShortName")) |>
@@ -148,16 +148,41 @@ team_games <- game_results |>
     delta_disp = round(10 * delta_own / global_sd, 1)
   ) |>
   arrange(desc(gamedate)) |>
-  select(gamedate, gametype, result, disp_a, score_a, score_b,
+  select(yr, gamedate, gametype, result, disp_a, score_a, score_b,
          opp_full, opp_c1, disp_b, opp, delta_disp)
 
 reactable(
   team_games,
-  defaultPageSize     = 10,
+  filterable      = TRUE,
+  defaultFiltered = list(yr = as.character(current_year)),
+  defaultPageSize = 15,
   showPageSizeOptions = TRUE,
-  pageSizeOptions     = c(10, 30, 100),
+  pageSizeOptions     = c(15, 50, 200),
   highlight = TRUE,
   columns = list(
+    yr = colDef(
+      name  = "年度",
+      width = 72,
+      align = "center",
+      filterMethod = JS("(rows, columnId, filterValue) => {
+        if (!filterValue) return rows;
+        return rows.filter(row => String(row.values[columnId]) === filterValue);
+      }"),
+      filterInput = function(values, name) {
+        yrs <- sort(unique(values), decreasing = TRUE)
+        tags$select(
+          style    = "width:100%; font-size:0.8rem;",
+          onchange = sprintf(
+            "Reactable.setFilter('games-table', '%s', event.target.value || undefined)", name
+          ),
+          tags$option(value = "", "全年度"),
+          lapply(yrs, function(y) {
+            opt <- tags$option(value = as.character(y), as.character(y))
+            if (y == current_year) tagAppendAttributes(opt, selected = NA) else opt
+          })
+        )
+      }
+    ),
     gamedate = colDef(name = "日付", width = 108,
                       format = colFormat(date = TRUE, locales = "ja-JP")),
     gametype = colDef(name = "種別", width = 120),
@@ -174,14 +199,14 @@ reactable(
     score_a = colDef(
       name = "得点", width = 60, align = "center",
       style = function(v, ri) {
-        if (!is.na(v) && v > team_games$score_b[ri + 1])
+        if (!is.na(v) && v > team_games$score_b[ri])
           "font-weight:900; font-size:1rem;" else "color:#AAA;"
       }
     ),
     score_b = colDef(
       name = "失点", width = 60, align = "center",
       style = function(v, ri) {
-        if (!is.na(v) && v > team_games$score_a[ri + 1])
+        if (!is.na(v) && v > team_games$score_a[ri])
           "font-weight:900; font-size:1rem;" else "color:#AAA;"
       }
     ),
@@ -197,7 +222,7 @@ reactable(
     opp_full = colDef(
       name = "対戦相手",
       cell = function(v, ri) {
-        row <- team_games[ri + 1, ]
+        row <- team_games[ri, ]
         tags$span(
           tags$a(href  = paste0(URLencode(row$opp), ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$opp_c1),
@@ -208,7 +233,8 @@ reactable(
     ),
     opp_c1 = colDef(show = FALSE), disp_b = colDef(show = FALSE),
     opp    = colDef(show = FALSE)
-  )
+  ),
+  elementId = "games-table"
 )
 ```
 

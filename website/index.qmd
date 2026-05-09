@@ -1,5 +1,4 @@
 ---
-title: "大学野球レーティング"
 format:
   html:
     page-layout: full
@@ -99,15 +98,6 @@ global_sd   <- sd(rating_hist$rating)
 to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
 ```
 
-<div style="border-bottom:2px solid #111; padding-bottom:14px; margin-bottom:36px;">
-  <div style="font-size:1.9rem; font-weight:900; letter-spacing:-0.04em; line-height:1.1; margin-bottom:4px;">
-    大学野球レーティング
-  </div>
-  <div style="font-size:0.72rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
-    `r current_year`年度 · Glicko2 + Score モデル · 東京六大学
-  </div>
-</div>
-
 ## 大学ランキング
 
 ```{r university-ranking}
@@ -145,7 +135,7 @@ reactable(
       name  = "チーム",
       minWidth = 180,
       cell  = function(v, ri) {
-        row <- rank_tbl[ri + 1, ]
+        row <- rank_tbl[ri, ]
         tags$div(
           class = "team-name-cell",
           tags$div(class = "team-color-bar",

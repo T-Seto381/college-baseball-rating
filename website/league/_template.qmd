@@ -174,7 +174,7 @@ reactable(
       name  = "チーム",
       minWidth = 180,
       cell  = function(v, ri) {
-        row <- league_ratings[ri + 1, ]
+        row <- league_ratings[ri, ]
         tags$div(
           class = "team-name-cell",
           tags$div(class = "team-color-bar",
@@ -250,7 +250,7 @@ reactable(
     name_a = colDef(
       name = "大学A",
       cell = function(v, ri) {
-        row <- league_games[ri + 1, ]
+        row <- league_games[ri, ]
         tags$span(
           tags$a(href  = paste0("../university/", URLencode(row$team_a), ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$c1_a),
@@ -286,7 +286,7 @@ reactable(
     name_b = colDef(
       name = "大学B",
       cell = function(v, ri) {
-        row <- league_games[ri + 1, ]
+        row <- league_games[ri, ]
         tags$span(
           tags$a(href  = paste0("../university/", URLencode(row$team_b), ".html"),
                  style = paste0("font-weight:700; text-decoration:none; color:", row$c1_b),
