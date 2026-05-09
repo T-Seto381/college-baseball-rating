@@ -910,13 +910,22 @@ tagList(
       )
     ),
     div(
-      class = "anchor-nav",
-      tags$a(href = "#league-year-archive", class = "anchor-link", "年次アーカイブ"),
-      tags$a(href = "#league-records", class = "anchor-link", "記録ボード"),
-      tags$a(href = "#league-yearbook", class = "anchor-link", "年度別比較"),
-      tags$a(href = "#rating-trend", class = "anchor-link", "推移グラフ"),
-      tags$a(href = "#league-ranking", class = "anchor-link", "現在ランキング"),
-      tags$a(href = "#games", class = "anchor-link", "試合一覧")
+      class = "section-rail",
+      div(
+        class = "section-rail-head",
+        div(class = "control-label", "Section Navigator"),
+        div(class = "section-rail-year", `data-league-bind` = "year-label", ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))),
+        div(class = "section-rail-note", "年度切替に合わせて年鑑表、試合一覧、推移グラフを横断して見直せます。")
+      ),
+      div(
+        class = "section-rail-nav",
+        tags$a(href = "#league-year-archive", class = "section-rail-link", "年次アーカイブ"),
+        tags$a(href = "#league-records", class = "section-rail-link", "記録ボード"),
+        tags$a(href = "#league-yearbook", class = "section-rail-link", "年度別比較"),
+        tags$a(href = "#rating-trend", class = "section-rail-link", "推移グラフ"),
+        tags$a(href = "#league-ranking", class = "section-rail-link", "現在ランキング"),
+        tags$a(href = "#games", class = "section-rail-link", "試合一覧")
+      )
     ),
     search_options,
     tags$script(HTML(hero_script))

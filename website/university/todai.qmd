@@ -995,13 +995,22 @@ tagList(
     )
   ),
   div(
-    class = "anchor-nav",
-    tags$a(href = "#year-archive", class = "anchor-link", "年次アーカイブ"),
-    tags$a(href = "#year-summary", class = "anchor-link", "年度別サマリー"),
-    tags$a(href = "#opponent-comparison", class = "anchor-link", "対戦相手比較"),
-    tags$a(href = "#rating-trend", class = "anchor-link", "レーティング推移"),
-    tags$a(href = "#games", class = "anchor-link", "試合一覧"),
-    tags$a(href = "#season-ratings", class = "anchor-link", "シーズン終点")
+    class = "section-rail",
+    div(
+      class = "section-rail-head",
+      div(class = "control-label", "Section Navigator"),
+      div(class = "section-rail-year", `data-team-bind` = "year-label", default_focus$year_label[[1]]),
+      div(class = "section-rail-note", "年度切替に合わせて下の比較表と推移グラフが連動します。")
+    ),
+    div(
+      class = "section-rail-nav",
+      tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
+      tags$a(href = "#year-summary", class = "section-rail-link", "年度別サマリー"),
+      tags$a(href = "#opponent-comparison", class = "section-rail-link", "対戦相手比較"),
+      tags$a(href = "#rating-trend", class = "section-rail-link", "レーティング推移"),
+      tags$a(href = "#games", class = "section-rail-link", "試合一覧"),
+      tags$a(href = "#season-ratings", class = "section-rail-link", "シーズン終点")
+    )
   )
 )
 ```
