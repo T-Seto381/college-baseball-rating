@@ -242,27 +242,6 @@ focus_peak_rating <- if (nrow(team_peak) > 0) {
   NA_real_
 }
 
-league_peer_title_board <- season_snapshots |>
-  filter(team %in% league_peer_teams, season_rank == 1) |>
-  left_join(
-    league_peer_info,
-    by = c("team" = "TeamShortName")
-  ) |>
-  filter(!is.na(TeamName)) |>
-  mutate(
-    season_label = paste0(yr_val, " ", season),
-    title_rating = round(display_rating, 1)
-  ) |>
-  arrange(team, desc(yr_val), desc(season == "秋"), desc(title_rating)) |>
-  group_by(team, TeamName, c1) |>
-  summarise(
-    season_titles = n(),
-    latest_title_label = first(season_label),
-    latest_title_rating = first(title_rating),
-    .groups = "drop"
-  ) |>
-  arrange(desc(season_titles), desc(latest_title_rating), TeamName)
-
 season_bg_df <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   select(gamedate, season) |>
@@ -288,6 +267,27 @@ season_snapshots <- season_end_dates |>
       mutate(season_rank = rank(desc(display_rating), ties.method = "min"))
   })) |>
   unnest(snapshot)
+
+league_peer_title_board <- season_snapshots |>
+  filter(team %in% league_peer_teams, season_rank == 1) |>
+  left_join(
+    league_peer_info,
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    title_rating = round(display_rating, 1)
+  ) |>
+  arrange(team, desc(yr_val), desc(season == "秋"), desc(title_rating)) |>
+  group_by(team, TeamName, c1) |>
+  summarise(
+    season_titles = n(),
+    latest_title_label = first(season_label),
+    latest_title_rating = first(title_rating),
+    .groups = "drop"
+  ) |>
+  arrange(desc(season_titles), desc(latest_title_rating), TeamName)
 
 season_end <- season_snapshots |>
   filter(team == TEAM) |>
@@ -1824,6 +1824,7 @@ tagList(
       tags$a(href = "#compare-shortcuts", class = "section-rail-link", "比較ショートカット"),
       tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
       tags$a(href = "#record-board", class = "section-rail-link", "記録ボード"),
+      tags$a(href = "#rivalry-history", class = "section-rail-link", "通算ライバル"),
       tags$a(href = "#year-summary", class = "section-rail-link", "年度別サマリー"),
       tags$a(href = "#league-context", class = "section-rail-link", "同年リーグ比較"),
       tags$a(href = "#opponent-comparison", class = "section-rail-link", "対戦相手比較"),
@@ -2029,11 +2030,163 @@ div(
     ),
     div(
       class = "directory-link-row",
-      tags$a(href = "#opponent-comparison", class = "directory-link", "対戦相手比較へ"),
-      tags$a(href = league_url(league_name), class = "directory-link", "リーグ年鑑へ")
+      tags$a(href = "#rivalry-history", class = "directory-link", "通算ライバル履歴へ"),
+      tags$a(href = "#opponent-comparison", class = "directory-link", "年度別の対戦相手比較へ")
     )
   )
 )
+```
+
+## 通算ライバル履歴 {#rivalry-history}
+
+<div class="copy-shell">
+  <p class="section-lead">この大学が誰と長く戦ってきたかを、全期間の通算成績、直近対戦、最大アップセット勝利で並べた履歴表です。選択年度に依存しない土台として置き、年別の対戦相手比較へ入る前に歴史的な相手関係をつかめるようにしました。</p>
+  <p class="record-note">下の表は常に全期間集計です。年度ごとの対戦成績は、さらに下の「対戦相手別比較」で切り替えられます。</p>
+</div>
+
+```{r rivalry-history-table}
+rivalry_record_cell <- function(wins, losses, draws, games) {
+  if (is.na(games) || games == 0) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", paste0(wins, "-", losses, "-", draws)),
+    tags$span(class = "rating-badge", paste0("勝率 ", sprintf("%.1f%%", 100 * wins / games)))
+  )
+}
+
+rivalry_latest_cell <- function(date_val, result_val, score_val) {
+  if (is.na(date_val) || is.na(result_val) || is.na(score_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  result_label <- case_when(
+    result_val == "W" ~ "勝",
+    result_val == "L" ~ "敗",
+    TRUE ~ "分"
+  )
+  result_class <- case_when(
+    result_val == "W" ~ "result-w",
+    result_val == "L" ~ "result-l",
+    TRUE ~ "result-d"
+  )
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = paste("result-chip", result_class), result_label),
+    tags$span(class = "rating-badge", paste0(format(date_val, "%Y/%m/%d"), "  ", score_val))
+  )
+}
+
+rivalry_upset_cell <- function(prob_val, date_val, score_val) {
+  if (is.na(prob_val) || is.na(date_val) || is.na(score_val)) {
+    return(tags$span(class = "change-none", "番狂わせ勝利なし"))
+  }
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f%%", 100 * prob_val)),
+    tags$span(class = "rating-badge", paste0(format(date_val, "%Y/%m/%d"), "  ", score_val))
+  )
+}
+
+if (nrow(opponent_summary_all) > 0) {
+  div(
+    class = "table-shell",
+    reactable(
+      opponent_summary_all,
+      filterable = TRUE,
+      defaultPageSize = 8,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(8, 16, 32),
+      defaultSorted = list(games = "desc"),
+      highlight = TRUE,
+      columns = list(
+        name_b = colDef(
+          name = "対戦相手",
+          minWidth = 190,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            row <- opponent_summary_all[ri, ]
+            tags$div(
+              class = "team-name-cell",
+              tags$div(class = "team-color-bar", style = paste0("background:", row$c1_b)),
+              tags$a(
+                href = team_url(row$team_b),
+                class = "team-name-link",
+                style = paste0("color:", row$c1_b),
+                v
+              )
+            )
+          }
+        ),
+        games = colDef(name = "通算試合", width = 86, align = "center", filterable = FALSE),
+        wins = colDef(
+          name = "通算成績",
+          minWidth = 132,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_record_cell(
+              wins = v,
+              losses = opponent_summary_all$losses[[ri]],
+              draws = opponent_summary_all$draws[[ri]],
+              games = opponent_summary_all$games[[ri]]
+            )
+          }
+        ),
+        latest_date = colDef(
+          name = "直近対戦",
+          minWidth = 160,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_latest_cell(
+              date_val = v,
+              result_val = opponent_summary_all$latest_result[[ri]],
+              score_val = opponent_summary_all$latest_score[[ri]]
+            )
+          }
+        ),
+        upset_prob = colDef(
+          name = "最大アップセット勝利",
+          minWidth = 180,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_upset_cell(
+              prob_val = v,
+              date_val = opponent_summary_all$upset_date[[ri]],
+              score_val = opponent_summary_all$upset_score[[ri]]
+            )
+          }
+        ),
+        team_b = colDef(
+          name = "比較",
+          minWidth = 108,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v) {
+            if (is.na(v) || !(v %in% ranked_team_ids)) {
+              return(tags$span(class = "change-none", "比較不可"))
+            }
+
+            compare_action(TEAM, v)
+          }
+        ),
+        c1_b = colDef(show = FALSE),
+        losses = colDef(show = FALSE),
+        draws = colDef(show = FALSE),
+        latest_result = colDef(show = FALSE),
+        latest_score = colDef(show = FALSE),
+        upset_date = colDef(show = FALSE),
+        upset_score = colDef(show = FALSE),
+        win_pct = colDef(show = FALSE)
+      )
+    )
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる通算ライバル履歴がありません。"))
+}
 ```
 
 ## 年度別サマリー {#year-summary}
@@ -2293,8 +2446,8 @@ if (nrow(league_year_context) > 0) {
 ## 対戦相手別比較 {#opponent-comparison}
 
 <div class="copy-shell">
-  <p class="section-lead">選択年度の対戦相手ごとの成績をまとめた比較表です。どこで勝ち越したか、直近の対戦がどう終わったか、どの相手に対して大きな番狂わせ勝利があったかを1か所で確認できます。</p>
-  <p class="record-note">表示年度を切り替えると、この表もその年の対戦だけに絞り込みます。</p>
+  <p class="section-lead">上の通算ライバル履歴とは別に、選択年度の対戦相手ごとの成績をまとめた比較表です。どこで勝ち越したか、直近の対戦がどう終わったか、どの相手に対して大きな番狂わせ勝利があったかを、その年に限定して確認できます。</p>
+  <p class="record-note">表示年度を切り替えると、この表もその年の対戦だけに絞り込みます。全期間の通算成績は上の「通算ライバル履歴」で確認できます。</p>
 </div>
 
 ```{r opponent-comparison-table}
