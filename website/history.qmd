@@ -615,6 +615,14 @@ tagList(
       div(class = "route-link", "現在地を見る →")
     ),
     tags$a(
+      href = "explore.html",
+      class = "route-card",
+      div(class = "route-label", "Explore Directory"),
+      div(class = "route-title", "大学・リーグ一覧へ"),
+      div(class = "route-copy", "リーグ一覧と大学ディレクトリから、現在値と歴代ピークを起点に詳細ページへ移動できます。"),
+      div(class = "route-link", "一覧へ →")
+    ),
+    tags$a(
       href = "league/tokyo6.html",
       class = "route-card",
       div(class = "route-label", "League View"),

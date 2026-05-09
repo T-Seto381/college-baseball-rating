@@ -432,6 +432,12 @@ tagList(
     <div class="route-copy">最新試合を反映した順位、リーグ平均、直近の注目試合をまとめて確認します。</div>
     <div class="route-link">ランキングを見る &#8595;</div>
   </a>
+  <a href="explore.html" class="route-card">
+    <div class="route-label">Explore Directory</div>
+    <div class="route-title">大学・リーグ一覧から探す</div>
+    <div class="route-copy">検索だけでなく、リーグ一覧と大学ディレクトリから現在値と歴代ピークを見比べながら移動できます。</div>
+    <div class="route-link">一覧ページへ &#8594;</div>
+  </a>
   <a href="history.html" class="route-card route-card-emphasis">
     <div class="route-label">Historical Archive</div>
     <div class="route-title">歴史と記録をたどる</div>

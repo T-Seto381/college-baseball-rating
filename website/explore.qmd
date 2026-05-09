@@ -1,0 +1,632 @@
+---
+title: "大学・リーグ一覧"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+library(tidyverse)
+library(reactable)
+library(htmltools)
+library(lubridate)
+
+final_ratings <- read_csv("../data_out/ratings/final_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+rating_hist <- read_csv("../data_out/ratings/rating_history.csv",
+  show_col_types = FALSE
+) |>
+  mutate(date = as.Date(date))
+
+game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv",
+  show_col_types = FALSE
+) |>
+  mutate(gamedate = as.Date(gamedate))
+
+teams_info <- readxl::read_excel("../data_out/teamdata.xlsx") |>
+  mutate(
+    c1 = paste0("#", ColorCode1),
+    c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
+    c3 = paste0(
+      "#",
+      if_else(
+        is.na(ColorCode3),
+        if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+        ColorCode3
+      )
+    )
+  )
+
+TEAM_SLUG <- c(
+  "東大" = "todai",
+  "明治" = "meiji",
+  "慶應" = "keio",
+  "早稲田" = "waseda",
+  "立教" = "rikkyo",
+  "法政" = "hosei"
+)
+
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
+team_url <- function(team, prefix = "") {
+  slug <- TEAM_SLUG[[team]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "university/", slug, ".html")
+}
+
+league_url <- function(league, prefix = "") {
+  slug <- LEAGUE_SLUG[[league]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "league/", slug, ".html")
+}
+
+analysis_games <- game_results |>
+  filter(gamedate <= Sys.Date())
+
+available_years <- sort(unique(year(analysis_games$gamedate)), decreasing = TRUE)
+default_year <- if (length(available_years) > 0) {
+  as.character(available_years[[1]])
+} else {
+  as.character(year(Sys.Date()))
+}
+
+coverage_start <- min(analysis_games$gamedate)
+coverage_end <- max(analysis_games$gamedate)
+latest_snapshot_date <- max(final_ratings$date)
+
+current_teams <- final_ratings |>
+  arrange(rank) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName))
+
+team_peaks <- rating_hist |>
+  filter(date <= Sys.Date()) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(team, TeamName, LeagueName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+season_ends <- analysis_games |>
+  group_by(yr_val = year(gamedate), season) |>
+  summarise(end_date = max(gamedate), .groups = "drop") |>
+  arrange(desc(yr_val), desc(season == "秋"))
+
+best_season_end <- season_ends |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    snapshot = map(end_date, function(d) {
+      rating_hist |>
+        filter(date <= d) |>
+        group_by(team) |>
+        slice_tail(n = 1) |>
+        ungroup() |>
+        select(team, display_rating)
+    })
+  ) |>
+  unnest(snapshot) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(team, TeamName, LeagueName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    best_season_label = season_label,
+    best_season_rating = round(display_rating, 1),
+    best_season_end = end_date
+  )
+
+university_directory <- current_teams |>
+  transmute(
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    current_rank = rank,
+    current_rating = round(display_rating, 1)
+  ) |>
+  left_join(
+    team_peaks |> select(team, peak_rating, peak_date),
+    by = "team"
+  ) |>
+  left_join(best_season_end, by = "team") |>
+  mutate(
+    gap_from_peak = round(current_rating - peak_rating, 1)
+  ) |>
+  arrange(current_rank)
+
+league_current <- current_teams |>
+  group_by(LeagueName) |>
+  summarise(
+    team_count = n(),
+    avg_rating = round(mean(display_rating), 1),
+    .groups = "drop"
+  )
+
+league_leaders <- current_teams |>
+  arrange(LeagueName, rank) |>
+  group_by(LeagueName) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    LeagueName,
+    top_team = TeamName,
+    top_team_short = team,
+    top_team_color = c1,
+    top_rank = rank,
+    top_rating = round(display_rating, 1)
+  )
+
+league_peak <- team_peaks |>
+  arrange(LeagueName, desc(peak_rating), desc(peak_date)) |>
+  group_by(LeagueName) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    LeagueName,
+    peak_team = TeamName,
+    peak_team_short = team,
+    peak_team_color = c1,
+    league_peak_rating = peak_rating,
+    league_peak_date = peak_date
+  )
+
+league_directory <- teams_info |>
+  distinct(LeagueName) |>
+  filter(!is.na(LeagueName)) |>
+  mutate(league_slug = LEAGUE_SLUG[LeagueName]) |>
+  filter(!is.na(league_slug)) |>
+  left_join(league_current, by = "LeagueName") |>
+  left_join(league_leaders, by = "LeagueName") |>
+  left_join(league_peak, by = "LeagueName") |>
+  arrange(desc(avg_rating), LeagueName)
+
+search_targets <- bind_rows(
+  teams_info |>
+    transmute(
+      label = TeamName,
+      search = paste(TeamName, TeamShortName, LeagueName),
+      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+    ),
+  teams_info |>
+    distinct(LeagueName) |>
+    transmute(
+      label = LeagueName,
+      search = LeagueName,
+      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+    )
+) |>
+  filter(!is.na(url))
+
+search_targets_json <- jsonlite::toJSON(search_targets, dataframe = "rows", auto_unbox = TRUE)
+
+team_link_cell <- function(name, team, color, prefix = "") {
+  tags$div(
+    class = "team-name-cell",
+    tags$div(class = "team-color-bar", style = paste0("background:", color)),
+    tags$a(
+      href = team_url(team, prefix),
+      class = "team-name-link",
+      style = paste0("color:", color),
+      name
+    )
+  )
+}
+```
+
+```{r hero}
+search_options <- tags$datalist(
+  id = "site-search-options",
+  lapply(search_targets$label, function(lbl) tags$option(value = lbl))
+)
+
+hero_script <- glue::glue(
+  "
+  (function() {{
+    const targets = {search_targets_json};
+    const defaultYear = '{default_year}';
+
+    function normalize(value) {{
+      return String(value || '').replace(/\\s+/g, '').toLowerCase();
+    }}
+
+    function syncYear(value) {{
+      if (!value) return;
+      window.localStorage.setItem('cbr-selected-year', value);
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        if ([].some.call(select.options, function(opt) {{ return opt.value === value; }})) {{
+          select.value = value;
+        }}
+      }});
+    }}
+
+    function goSearch() {{
+      const input = document.querySelector('[data-search-input]');
+      if (!input) return;
+      const key = normalize(input.value);
+      if (!key) return;
+      const match = targets.find(function(target) {{
+        return normalize(target.label) === key || normalize(target.search).indexOf(key) !== -1;
+      }});
+      if (match) {{
+        syncYear(document.querySelector('[data-global-year]')?.value || defaultYear);
+        window.location.href = match.url;
+      }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      syncYear(window.localStorage.getItem('cbr-selected-year') || defaultYear);
+
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        select.addEventListener('change', function(event) {{
+          syncYear(event.target.value);
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-go]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          goSearch();
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-input]').forEach(function(input) {{
+        input.addEventListener('keydown', function(event) {{
+          if (event.key === 'Enter') {{
+            event.preventDefault();
+            goSearch();
+          }}
+        }});
+      }});
+    }});
+  }})();
+  "
+)
+
+tagList(
+  div(
+    class = "page-hero",
+    div(class = "page-kicker", "Explore Directory"),
+    div(
+      class = "hero-grid",
+      div(
+        h1(class = "hero-title", "大学・リーグ一覧"),
+        p(
+          class = "hero-subtitle",
+          "検索だけでなく一覧からたどれる入口を追加し、現在の順位ページと歴史アーカイブの間にある探索レイヤーを整理しました。リーグが増えても、同じ構造で大学とリーグを見つけられる前提の導線です。"
+        ),
+        div(
+          class = "meta-pills",
+          div(class = "meta-pill", paste0("対象期間 ", format(coverage_start, "%Y/%m/%d"), " - ", format(coverage_end, "%Y/%m/%d"))),
+          div(class = "meta-pill", paste0("大学 ", nrow(university_directory), " 校")),
+          div(class = "meta-pill", paste0("リーグ ", nrow(league_directory), " 件"))
+        )
+      ),
+      div(
+        class = "stat-grid",
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "最新更新"),
+          div(class = "stat-value", format(latest_snapshot_date, "%m/%d")),
+          div(class = "stat-note", format(latest_snapshot_date, "%Y年%m月%d日時点"))
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "現在首位"),
+          div(class = "stat-value", university_directory$TeamName[[1]]),
+          div(class = "stat-note", paste0("全国 ", university_directory$current_rank[[1]], " 位 / レート ", sprintf("%.1f", university_directory$current_rating[[1]])))
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "表示年度"),
+          div(class = "stat-value", default_year),
+          div(class = "stat-note", "一覧から移動した先でも年度選択を引き継げます")
+        )
+      )
+    ),
+    div(
+      class = "control-bar",
+      div(
+        class = "control-block",
+        div(class = "control-label", "大学・リーグ検索"),
+        div(
+          class = "search-shell",
+          tags$input(
+            class = "search-input",
+            type = "search",
+            placeholder = "大学名またはリーグ名を入力",
+            list = "site-search-options",
+            `data-search-input` = "site"
+          ),
+          tags$button(class = "control-button", type = "button", `data-search-go` = "site", "移動")
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "表示年度"),
+        tags$select(
+          class = "year-select",
+          `data-global-year` = "site",
+          lapply(available_years, function(yr) tags$option(value = yr, as.character(yr)))
+        )
+      )
+    ),
+    div(
+      class = "anchor-nav",
+      tags$a(href = "#navigation-paths", class = "anchor-link", "導線"),
+      tags$a(href = "#league-directory", class = "anchor-link", "リーグ一覧"),
+      tags$a(href = "#university-directory", class = "anchor-link", "大学一覧")
+    ),
+    search_options,
+    tags$script(HTML(hero_script))
+  )
+)
+```
+
+## どこから見るか {#navigation-paths}
+
+<div class="copy-shell">
+  <p class="section-lead">このページは「現在の順位」「歴史と記録」「リーグ詳細」「大学詳細」の間をつなぐ索引です。まず見たい単位を選んでから深掘りできるように、入口を役割ごとに分けています。</p>
+</div>
+
+<div class="route-grid">
+  <a href="index.html" class="route-card">
+    <div class="route-label">Current View</div>
+    <div class="route-title">現在の順位を見る</div>
+    <div class="route-copy">最新順位、リーグ平均、直近の注目試合をまとめて確認する入口です。</div>
+    <div class="route-link">現在のランキングへ &#8594;</div>
+  </a>
+  <a href="history.html" class="route-card route-card-emphasis">
+    <div class="route-label">Historical Archive</div>
+    <div class="route-title">歴史と記録を見る</div>
+    <div class="route-copy">年度別の終点首位、大学ピーク、最大アップセットを横断して確認します。</div>
+    <div class="route-link">歴代アーカイブへ &#8594;</div>
+  </a>
+  <a href="league/tokyo6.html" class="route-card">
+    <div class="route-label">League View</div>
+    <div class="route-title">リーグ単位で比較する</div>
+    <div class="route-copy">所属校の推移と年度別の勢力図をリーグ単位で見比べるための入口です。</div>
+    <div class="route-link">リーグ詳細へ &#8594;</div>
+  </a>
+  <a href="methodology.html" class="route-card">
+    <div class="route-label">Method</div>
+    <div class="route-title">計算方法を確認する</div>
+    <div class="route-copy">表示指標の意味や採用モデルを確認してから比較を進めたい場合の入口です。</div>
+    <div class="route-link">方法を見る &#8594;</div>
+  </a>
+</div>
+
+## 情報構造 {#information-structure}
+
+<div class="directory-structure">
+  <div class="directory-structure-item">
+    <div class="directory-structure-label">Current Layer</div>
+    <div class="directory-structure-value">最新の強さを把握する</div>
+    <div class="directory-structure-note">現在のランキングページを基点に、最新順位と直近試合を確認します。</div>
+  </div>
+  <div class="directory-structure-item">
+    <div class="directory-structure-label">Browse Layer</div>
+    <div class="directory-structure-value">大学・リーグから探す</div>
+    <div class="directory-structure-note">この一覧ページで対象を見つけ、リーグ詳細や大学詳細へ降りていきます。</div>
+  </div>
+  <div class="directory-structure-item">
+    <div class="directory-structure-label">History Layer</div>
+    <div class="directory-structure-value">歴代の強さをたどる</div>
+    <div class="directory-structure-note">年度別の終点、ピーク、アップセット記録を歴史ページで横断比較します。</div>
+  </div>
+</div>
+
+## リーグ一覧 {#league-directory}
+
+<div class="copy-shell">
+  <p class="section-lead">リーグごとの入口カードです。現在のリーグ平均、現時点の先頭校、リーグ内の歴代ピークをまとめておき、今後リーグ数が増えても同じ単位で比較しやすい構造にしています。</p>
+</div>
+
+```{r league-directory-cards}
+if (nrow(league_directory) > 0) {
+  div(
+    class = "directory-grid",
+    lapply(seq_len(nrow(league_directory)), function(i) {
+      row <- league_directory[i, ]
+
+      div(
+        class = "directory-card",
+        div(
+          class = "directory-card-head",
+          div(class = "directory-card-kicker", "League"),
+          div(class = "directory-card-title", row$LeagueName),
+          div(
+            class = "directory-card-copy",
+            "現在の平均値と歴代ピークから、リーグ単位での現在地をつかむための入口です。"
+          )
+        ),
+        div(
+          class = "directory-meta-grid",
+          div(
+            class = "directory-meta-item",
+            div(class = "directory-meta-label", "現在先頭"),
+            team_link_cell(row$top_team, row$top_team_short, row$top_team_color),
+            div(class = "directory-meta-note", paste0("全国 ", row$top_rank, " 位 / レート ", sprintf("%.1f", row$top_rating)))
+          ),
+          div(
+            class = "directory-meta-item",
+            div(class = "directory-meta-label", "リーグ平均"),
+            div(class = "directory-meta-value", sprintf("%.1f", row$avg_rating)),
+            div(class = "directory-meta-note", paste0("所属 ", row$team_count, " 校"))
+          ),
+          div(
+            class = "directory-meta-item",
+            div(class = "directory-meta-label", "歴代ピーク"),
+            team_link_cell(row$peak_team, row$peak_team_short, row$peak_team_color),
+            div(class = "directory-meta-note", paste0(format(row$league_peak_date, "%Y/%m/%d"), " / レート ", sprintf("%.1f", row$league_peak_rating)))
+          ),
+          div(
+            class = "directory-meta-item",
+            div(class = "directory-meta-label", "役割"),
+            div(class = "directory-meta-value", "比較の単位"),
+            div(class = "directory-meta-note", "所属校の推移、年鑑比較、試合一覧へ進みます")
+          )
+        ),
+        div(
+          class = "directory-link-row",
+          tags$a(href = league_url(row$LeagueName), class = "directory-link", "リーグ詳細へ"),
+          tags$a(href = "history.html", class = "directory-link", "歴史アーカイブへ")
+        )
+      )
+    })
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できるリーグデータがありません。"))
+}
+```
+
+## 大学一覧 {#university-directory}
+
+<div class="copy-shell">
+  <p class="section-lead">現在順位だけでなく、歴代ピークと最良のシーズン終点も併記した大学ディレクトリです。今の位置と過去の天井を同時に確認しながら、各大学ページへ移動できます。</p>
+  <p class="record-note">将来的にリーグが増えた場合も、この一覧を起点にリーグ別や歴代比較へ分岐できる想定です。</p>
+</div>
+
+```{r university-directory-table}
+best_season_cell <- function(team, label, rating, end_date) {
+  if (is.na(label) || is.na(rating) || is.na(end_date)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f", rating)),
+    tags$span(class = "rating-badge", paste0(label, " / ", format(end_date, "%m/%d")))
+  )
+}
+
+gap_cell <- function(v) {
+  if (is.na(v)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  cls <- if (v >= -1) {
+    "change-up"
+  } else if (v <= -8) {
+    "change-down"
+  } else {
+    "change-none"
+  }
+
+  tags$span(class = cls, sprintf("%.1f", v))
+}
+
+div(
+  class = "table-shell",
+  reactable(
+    university_directory,
+    filterable = TRUE,
+    defaultPageSize = 12,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(12, 24, 60),
+    highlight = TRUE,
+    defaultSorted = list(current_rank = "asc"),
+    columns = list(
+      TeamName = colDef(
+        name = "大学",
+        minWidth = 190,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- university_directory[ri, ]
+          team_link_cell(v, row$team, row$c1)
+        }
+      ),
+      LeagueName = colDef(
+        name = "リーグ",
+        minWidth = 110,
+        filterable = TRUE,
+        cell = function(v) {
+          tags$a(href = league_url(v), class = "team-link-inline", v)
+        }
+      ),
+      current_rank = colDef(
+        name = "現在順位",
+        width = 84,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rank-number", v)
+      ),
+      current_rating = colDef(
+        name = "現在値",
+        width = 90,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      peak_rating = colDef(
+        name = "歴代ピーク",
+        width = 96,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+      ),
+      peak_date = colDef(
+        name = "到達日",
+        width = 118,
+        align = "right",
+        filterable = FALSE,
+        format = colFormat(date = TRUE, locales = "ja-JP")
+      ),
+      best_season_label = colDef(
+        name = "最高シーズン終点",
+        minWidth = 170,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          best_season_cell(
+            team = university_directory$team[[ri]],
+            label = v,
+            rating = university_directory$best_season_rating[[ri]],
+            end_date = university_directory$best_season_end[[ri]]
+          )
+        }
+      ),
+      gap_from_peak = colDef(
+        name = "現在との差",
+        width = 90,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) gap_cell(v)
+      ),
+      team = colDef(show = FALSE),
+      c1 = colDef(show = FALSE),
+      best_season_rating = colDef(show = FALSE),
+      best_season_end = colDef(show = FALSE)
+    )
+  )
+)
+```
+
+<div class="back-links">
+  <a href="index.html" class="back-link">&#8592; 現在のランキングへ</a>
+  <a href="history.html" class="back-link">&#8594; 歴史と記録へ</a>
+  <a href="methodology.html" class="back-link">&#8594; 計算方法の詳細</a>
+</div>

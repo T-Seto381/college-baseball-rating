@@ -11,6 +11,8 @@ website:
     left:
       - href: index.qmd
         text: 現在の順位
+      - href: explore.qmd
+        text: 大学・リーグ一覧
       - href: history.qmd
         text: 歴史と記録
       - href: methodology.qmd
