@@ -1354,6 +1354,10 @@ h3 {
   margin-bottom: 14px;
 }
 
+.record-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .record-panel {
   padding: 18px 18px 10px;
   border-radius: 8px;
@@ -1391,6 +1395,52 @@ h3 {
   margin: 10px 0 14px;
   color: var(--ink-soft);
   font-size: 0.85rem;
+}
+
+.record-stat-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.record-stat-item {
+  min-height: 88px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+}
+
+.record-stat-label {
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.record-stat-value {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 1.04rem;
+  line-height: 1.2;
+  font-weight: 900;
+}
+
+.record-stat-note {
+  margin-top: 6px;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+.record-stat-link {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.record-stat-link:hover {
+  text-decoration: underline;
 }
 
 .record-empty {
@@ -1747,6 +1797,10 @@ div[id] {
   }
 
   .record-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .record-grid-three {
     grid-template-columns: 1fr;
   }
 
