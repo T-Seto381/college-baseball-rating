@@ -157,14 +157,14 @@ team_games <- game_results |>
   select(yr, gamedate, gametype, result, disp_a, score_a, score_b,
          opp_full, opp_c1, disp_b, opp, delta_disp)
 
-reactable(
-  team_games,
-  filterable      = TRUE,
-  defaultFiltered = list(yr = as.character(current_year)),
-  defaultPageSize = 15,
-  showPageSizeOptions = TRUE,
-  pageSizeOptions     = c(15, 50, 200),
-  highlight = TRUE,
+tagList(
+  reactable(
+    team_games,
+    filterable      = TRUE,
+    defaultPageSize = 15,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions     = c(15, 50, 200),
+    highlight = TRUE,
   columns = list(
     yr = colDef(
       name  = "年度",
@@ -241,6 +241,11 @@ reactable(
     opp    = colDef(show = FALSE)
   ),
   elementId = "games-table"
+  ),
+  tags$script(HTML(sprintf(
+    'window.addEventListener("load",function(){Reactable.setFilter("games-table","yr","%s");});',
+    as.character(current_year)
+  )))
 )
 ```
 
