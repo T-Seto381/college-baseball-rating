@@ -149,6 +149,8 @@ h2, h3 {
 .change-up   { color: var(--up-color);   font-weight: 700; font-size: 0.78rem; }
 .change-down { color: var(--down-color); font-weight: 700; font-size: 0.78rem; }
 .change-none { color: var(--text-faint); font-size: 0.82rem; }
+.change-new  { color: #FFFFFF; background: var(--text); font-weight: 700; font-size: 0.65rem;
+               padding: 1px 5px; border-radius: 2px; letter-spacing: 0.06em; }
 
 /* ---- Form indicators ---- */
 .form-cell   { display: flex; gap: 3px; align-items: center; }
