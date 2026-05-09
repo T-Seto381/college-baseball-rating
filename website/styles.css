@@ -1302,6 +1302,50 @@ h3 {
   flex-wrap: wrap;
 }
 
+.rivalry-matchup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rivalry-matchup-team {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(23, 50, 74, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--team-color, var(--ink));
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.rivalry-matchup-team::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--team-color, var(--accent));
+  flex-shrink: 0;
+}
+
+.rivalry-matchup-team:hover {
+  color: var(--team-color, var(--ink));
+  text-decoration: none;
+  border-color: var(--line-strong);
+}
+
+.rivalry-meta-note {
+  color: var(--ink-faint);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .record-vs {
   color: var(--ink-faint);
   font-size: 0.72rem;

@@ -176,6 +176,113 @@ league_games <- league_games_base |>
     delta_a_disp
   )
 
+league_internal_games <- league_analysis_games |>
+  filter(team1 %in% league_teams, team2 %in% league_teams) |>
+  mutate(
+    yr = as.character(year(gamedate)),
+    year = year(gamedate),
+    pair_team1 = pmin(team1, team2),
+    pair_team2 = pmax(team1, team2),
+    pair_team1_score = if_else(team1 == pair_team1, score1, score2),
+    pair_team2_score = if_else(team1 == pair_team1, score2, score1),
+    winner_team = case_when(
+      score1 > score2 ~ team1,
+      score2 > score1 ~ team2,
+      TRUE ~ NA_character_
+    ),
+    winner_prob = case_when(
+      score1 > score2 ~ E1,
+      score2 > score1 ~ 1 - E1,
+      TRUE ~ NA_real_
+    )
+  ) |>
+  left_join(
+    league_team_info |>
+      select(
+        TeamShortName,
+        pair_team1_name = TeamName,
+        pair_team1_c1 = c1
+      ),
+    by = c("pair_team1" = "TeamShortName")
+  ) |>
+  left_join(
+    league_team_info |>
+      select(
+        TeamShortName,
+        pair_team2_name = TeamName,
+        pair_team2_c1 = c1
+      ),
+    by = c("pair_team2" = "TeamShortName")
+  )
+
+league_rivalry_latest <- league_internal_games |>
+  arrange(desc(gamedate), desc(abs(pair_team1_score - pair_team2_score))) |>
+  group_by(yr, pair_team1, pair_team2) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    pair_team1,
+    pair_team2,
+    latest_date = gamedate,
+    latest_scoreline = paste0(pair_team1_score, " - ", pair_team2_score),
+    latest_note = case_when(
+      pair_team1_score > pair_team2_score ~ paste0(pair_team1_name, " 勝利"),
+      pair_team2_score > pair_team1_score ~ paste0(pair_team2_name, " 勝利"),
+      TRUE ~ "引き分け"
+    )
+  )
+
+league_rivalry_upsets <- league_internal_games |>
+  filter(!is.na(winner_team), !is.na(winner_prob), winner_prob < 0.5) |>
+  arrange(winner_prob, desc(gamedate)) |>
+  group_by(yr, pair_team1, pair_team2) |>
+  slice_head(n = 1) |>
+  ungroup() |>
+  transmute(
+    yr,
+    pair_team1,
+    pair_team2,
+    upset_date = gamedate,
+    upset_team = winner_team,
+    upset_name = if_else(winner_team == pair_team1, pair_team1_name, pair_team2_name),
+    upset_c1 = if_else(winner_team == pair_team1, pair_team1_c1, pair_team2_c1),
+    upset_scoreline = case_when(
+      winner_team == pair_team1 ~ paste0(pair_team1_score, " - ", pair_team2_score),
+      winner_team == pair_team2 ~ paste0(pair_team2_score, " - ", pair_team1_score),
+      TRUE ~ NA_character_
+    ),
+    upset_prob = winner_prob
+  )
+
+league_rivalry_summary <- league_internal_games |>
+  group_by(
+    yr,
+    year,
+    pair_team1,
+    pair_team2,
+    pair_team1_name,
+    pair_team2_name,
+    pair_team1_c1,
+    pair_team2_c1
+  ) |>
+  summarise(
+    games = n(),
+    pair_team1_wins = sum(pair_team1_score > pair_team2_score, na.rm = TRUE),
+    pair_team2_wins = sum(pair_team2_score > pair_team1_score, na.rm = TRUE),
+    draws = sum(pair_team1_score == pair_team2_score, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  left_join(
+    league_rivalry_latest,
+    by = c("yr", "pair_team1", "pair_team2")
+  ) |>
+  left_join(
+    league_rivalry_upsets,
+    by = c("yr", "pair_team1", "pair_team2")
+  ) |>
+  arrange(desc(year), desc(games), pair_team1_name, pair_team2_name)
+
 season_end_dates <- league_analysis_games |>
   group_by(yr_val = year(gamedate), season) |>
   summarise(end_date = max(gamedate), .groups = "drop") |>
@@ -638,6 +745,7 @@ hero_script <- glue::glue(
     const plotSelector = '#league-rating-chart .plotly, #league-rating-chart .js-plotly-plot';
     const tableFilters = [
       ['league-yearbook-table', 'yr'],
+      ['league-rivalry-table', 'yr'],
       ['league-games-table', 'yr']
     ];
 
@@ -1050,6 +1158,7 @@ tagList(
         tags$a(href = "#league-year-archive", class = "section-rail-link", "年次アーカイブ"),
         tags$a(href = "#league-records", class = "section-rail-link", "記録ボード"),
         tags$a(href = "#league-yearbook", class = "section-rail-link", "年度別比較"),
+        tags$a(href = "#league-rivalries", class = "section-rail-link", "対戦カード"),
         tags$a(href = "#rating-trend", class = "section-rail-link", "推移グラフ"),
         tags$a(href = "#league-ranking", class = "section-rail-link", "現在ランキング"),
         tags$a(href = "#games", class = "section-rail-link", "試合一覧")
@@ -1422,6 +1531,183 @@ if (nrow(league_yearbook) > 0) {
   )
 } else {
   div(class = "copy-shell", tags$p("表示できる年度別比較データがありません。"))
+}
+```
+
+## 対戦カード比較 {#league-rivalries}
+
+<div class="copy-shell">
+  <p class="section-lead">同じリーグ内の対戦カードごとに、その年の対戦数、勝ち越し、直近対戦、最大アップセットをまとめた比較表です。大学単位の年鑑とは別に、「どのカードがその年を象徴したか」を見つけるためのレイヤーとして追加しています。</p>
+  <p class="record-note">表示年度を切り替えると、その年のリーグ内カードだけに絞り込まれます。全期間では年列つきの通年索引として見られます。</p>
+</div>
+
+```{r league-rivalry-table}
+rivalry_matchup_cell <- function(team1_name, team1, color1, team2_name, team2, color2) {
+  tags$div(
+    class = "mini-stack",
+    tags$div(
+      class = "rivalry-matchup",
+      tags$a(
+        href = team_url(team1),
+        class = "rivalry-matchup-team",
+        style = paste0("--team-color:", color1),
+        team1_name
+      ),
+      tags$span(class = "record-vs", "vs"),
+      tags$a(
+        href = team_url(team2),
+        class = "rivalry-matchup-team",
+        style = paste0("--team-color:", color2),
+        team2_name
+      )
+    ),
+    tags$span(class = "rivalry-meta-note", "リーグ内の直接対戦カード")
+  )
+}
+
+rivalry_record_cell <- function(team1_name, team1_wins, team2_name, team2_wins, draws) {
+  note <- paste0(
+    team1_name, " ", team1_wins, "勝 / ",
+    team2_name, " ", team2_wins, "勝",
+    if (draws > 0) paste0(" / 引分 ", draws) else ""
+  )
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", paste0(team1_wins, "-", team2_wins, "-", draws)),
+    tags$span(class = "rating-badge", note)
+  )
+}
+
+rivalry_latest_cell <- function(date_val, scoreline, note) {
+  if (is.na(date_val) || is.na(scoreline) || is.na(note)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", scoreline),
+    tags$span(class = "rating-badge", paste0(format(date_val, "%m/%d"), "  ", note))
+  )
+}
+
+rivalry_upset_cell <- function(team_name, team_short, team_color, date_val, prob_val, scoreline) {
+  if (is.na(team_name) || is.na(team_short) || is.na(date_val) || is.na(prob_val) || is.na(scoreline)) {
+    return(tags$span(class = "change-none", "番狂わせなし"))
+  }
+
+  tags$div(
+    class = "mini-stack",
+    tags$a(
+      href = team_url(team_short),
+      class = "team-link-inline",
+      style = paste0("color:", team_color),
+      team_name
+    ),
+    tags$span(
+      class = "rating-badge",
+      paste0(
+        format(date_val, "%m/%d"),
+        "  ",
+        scoreline,
+        "  勝率 ",
+        sprintf("%.1f%%", 100 * prob_val)
+      )
+    )
+  )
+}
+
+if (nrow(league_rivalry_summary) > 0) {
+  div(
+    class = "table-shell",
+    reactable(
+      league_rivalry_summary,
+      filterable = TRUE,
+      defaultPageSize = 10,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(10, 20, 40),
+      highlight = TRUE,
+      defaultSorted = list(year = "desc", games = "desc"),
+      elementId = "league-rivalry-table",
+      columns = list(
+        yr = colDef(show = FALSE, filterable = TRUE),
+        year = colDef(name = "年", width = 72, align = "center", filterable = FALSE),
+        pair_team1_name = colDef(
+          name = "対戦カード",
+          minWidth = 240,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_matchup_cell(
+              team1_name = v,
+              team1 = league_rivalry_summary$pair_team1[[ri]],
+              color1 = league_rivalry_summary$pair_team1_c1[[ri]],
+              team2_name = league_rivalry_summary$pair_team2_name[[ri]],
+              team2 = league_rivalry_summary$pair_team2[[ri]],
+              color2 = league_rivalry_summary$pair_team2_c1[[ri]]
+            )
+          }
+        ),
+        games = colDef(name = "試合", width = 72, align = "center", filterable = FALSE),
+        pair_team1_wins = colDef(
+          name = "成績",
+          minWidth = 170,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_record_cell(
+              team1_name = league_rivalry_summary$pair_team1_name[[ri]],
+              team1_wins = v,
+              team2_name = league_rivalry_summary$pair_team2_name[[ri]],
+              team2_wins = league_rivalry_summary$pair_team2_wins[[ri]],
+              draws = league_rivalry_summary$draws[[ri]]
+            )
+          }
+        ),
+        latest_date = colDef(
+          name = "直近対戦",
+          minWidth = 156,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_latest_cell(
+              date_val = v,
+              scoreline = league_rivalry_summary$latest_scoreline[[ri]],
+              note = league_rivalry_summary$latest_note[[ri]]
+            )
+          }
+        ),
+        upset_name = colDef(
+          name = "最大アップセット",
+          minWidth = 180,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            rivalry_upset_cell(
+              team_name = v,
+              team_short = league_rivalry_summary$upset_team[[ri]],
+              team_color = league_rivalry_summary$upset_c1[[ri]],
+              date_val = league_rivalry_summary$upset_date[[ri]],
+              prob_val = league_rivalry_summary$upset_prob[[ri]],
+              scoreline = league_rivalry_summary$upset_scoreline[[ri]]
+            )
+          }
+        ),
+        pair_team2_name = colDef(show = FALSE),
+        pair_team1 = colDef(show = FALSE),
+        pair_team2 = colDef(show = FALSE),
+        pair_team1_c1 = colDef(show = FALSE),
+        pair_team2_c1 = colDef(show = FALSE),
+        pair_team2_wins = colDef(show = FALSE),
+        draws = colDef(show = FALSE),
+        latest_scoreline = colDef(show = FALSE),
+        latest_note = colDef(show = FALSE),
+        upset_team = colDef(show = FALSE),
+        upset_date = colDef(show = FALSE),
+        upset_c1 = colDef(show = FALSE),
+        upset_prob = colDef(show = FALSE),
+        upset_scoreline = colDef(show = FALSE)
+      )
+    )
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できるリーグ内対戦カードデータがありません。"))
 }
 ```
 
