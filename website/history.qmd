@@ -67,6 +67,37 @@ league_url <- function(league, prefix = "") {
   paste0(prefix, "league/", slug, ".html")
 }
 
+compare_url <- function(team1, team2, prefix = "") {
+  if (
+    is.null(team1) || is.null(team2) ||
+      is.na(team1) || is.na(team2) ||
+      identical(team1, team2)
+  ) {
+    return("#")
+  }
+
+  paste0(
+    prefix,
+    "compare.html?team1=",
+    utils::URLencode(team1, reserved = TRUE),
+    "&team2=",
+    utils::URLencode(team2, reserved = TRUE)
+  )
+}
+
+compare_action <- function(team1, team2, label = "2校比較", prefix = "") {
+  href <- compare_url(team1, team2, prefix = prefix)
+  if (href == "#") {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$a(
+    href = href,
+    class = "directory-link table-action-link",
+    label
+  )
+}
+
 team_link_cell <- function(name, team, color, prefix = "") {
   tags$div(
     class = "team-name-cell",
@@ -110,6 +141,34 @@ default_yr <- if (length(available_yrs) > 0) {
 } else {
   as.character(year(coverage_end))
 }
+
+current_teams <- final_ratings |>
+  arrange(rank) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  transmute(
+    team,
+    TeamName,
+    LeagueName,
+    c1,
+    current_rank = rank,
+    current_rating = round(display_rating, 1)
+  )
+
+leader_row <- current_teams |> slice_head(n = 1)
+leader_team <- if (nrow(leader_row) > 0) leader_row$team[[1]] else NA_character_
+leader_name <- if (nrow(leader_row) > 0) leader_row$TeamName[[1]] else NA_character_
+
+runner_up_row <- if (nrow(current_teams) >= 2) {
+  current_teams |> slice(2)
+} else {
+  current_teams[0, ]
+}
+runner_up_team <- if (nrow(runner_up_row) > 0) runner_up_row$team[[1]] else NA_character_
+runner_up_name <- if (nrow(runner_up_row) > 0) runner_up_row$TeamName[[1]] else NA_character_
 
 season_ends <- analysis_games |>
   group_by(yr_val = year(gamedate), season) |>
@@ -166,6 +225,49 @@ season_rankings <- season_snapshots |>
     c1,
     display_rating = round(display_rating, 1),
     end_date
+  )
+
+season_compare_targets <- season_snapshots |>
+  arrange(season_label, season_rank, desc(display_rating), TeamName) |>
+  group_by(season_label) |>
+  summarise(
+    leader_team = first(team),
+    runner_up_team = if (any(season_rank > 1)) {
+      team[season_rank > 1][[1]]
+    } else {
+      NA_character_
+    },
+    .groups = "drop"
+  )
+
+season_leaders <- season_leaders |>
+  left_join(season_compare_targets, by = "season_label") |>
+  mutate(
+    compare_team = case_when(
+      !is.na(leader_team) & team != leader_team ~ leader_team,
+      !is.na(runner_up_team) & team == leader_team ~ runner_up_team,
+      TRUE ~ NA_character_
+    ),
+    compare_label = case_when(
+      !is.na(leader_team) & team != leader_team ~ paste0("vs ", leader_team),
+      !is.na(runner_up_team) & team == leader_team ~ paste0("vs ", runner_up_team),
+      TRUE ~ NA_character_
+    )
+  )
+
+season_rankings <- season_rankings |>
+  left_join(season_compare_targets, by = "season_label") |>
+  mutate(
+    compare_team = case_when(
+      !is.na(leader_team) & team != leader_team ~ leader_team,
+      !is.na(runner_up_team) & team == leader_team ~ runner_up_team,
+      TRUE ~ NA_character_
+    ),
+    compare_label = case_when(
+      !is.na(leader_team) & team != leader_team ~ paste0("vs ", leader_team),
+      !is.na(runner_up_team) & team == leader_team ~ paste0("vs ", runner_up_team),
+      TRUE ~ NA_character_
+    )
   )
 
 season_focus <- season_leaders |>
@@ -249,6 +351,32 @@ team_peaks <- rating_hist |>
     current_rank
   )
 
+all_time_peak_row <- team_peaks |> slice_head(n = 1)
+all_time_peak_team <- if (nrow(all_time_peak_row) > 0) all_time_peak_row$team[[1]] else NA_character_
+all_time_peak_name <- if (nrow(all_time_peak_row) > 0) all_time_peak_row$TeamName[[1]] else NA_character_
+
+peak_runner_up_row <- team_peaks |>
+  filter(team != all_time_peak_team) |>
+  slice_head(n = 1)
+
+peak_runner_up_team <- if (nrow(peak_runner_up_row) > 0) peak_runner_up_row$team[[1]] else NA_character_
+
+team_peaks <- team_peaks |>
+  mutate(
+    compare_team = case_when(
+      !is.na(all_time_peak_team) & team != all_time_peak_team ~ all_time_peak_team,
+      !is.na(leader_team) & team == all_time_peak_team & all_time_peak_team != leader_team ~ leader_team,
+      !is.na(peak_runner_up_team) & team == all_time_peak_team ~ peak_runner_up_team,
+      TRUE ~ NA_character_
+    ),
+    compare_label = case_when(
+      !is.na(all_time_peak_team) & team != all_time_peak_team ~ paste0("vs ", all_time_peak_team),
+      !is.na(leader_team) & team == all_time_peak_team & all_time_peak_team != leader_team ~ paste0("vs ", leader_team),
+      !is.na(peak_runner_up_team) & team == all_time_peak_team ~ paste0("vs ", peak_runner_up_team),
+      TRUE ~ NA_character_
+    )
+  )
+
 global_sd <- sd(rating_hist$rating)
 
 upset_games <- analysis_games |>
@@ -289,6 +417,12 @@ upset_games <- analysis_games |>
     underdog_win_prob,
     rating_gap = round(rating_gap, 1),
     delta_disp
+  )
+
+upset_games <- upset_games |>
+  mutate(
+    compare_team = favorite,
+    compare_label = paste0("vs ", favorite)
   )
 
 upset_focus <- upset_games |>
@@ -475,6 +609,130 @@ top_season_record <- season_rankings |>
   slice_head(n = 1)
 top_upset <- upset_games |> slice_head(n = 1)
 upset_record_board <- upset_games |> slice_head(n = 10)
+
+title_leader_row <- season_title_board |> slice_head(n = 1)
+title_leader_team <- if (nrow(title_leader_row) > 0) title_leader_row$team[[1]] else NA_character_
+title_leader_name <- if (nrow(title_leader_row) > 0) title_leader_row$TeamName[[1]] else NA_character_
+
+history_compare_shortcuts <- bind_rows(
+  if (!is.na(all_time_peak_team) && (!is.na(leader_team) || !is.na(runner_up_team))) {
+    target_team <- if (!is.na(leader_team) && leader_team != all_time_peak_team) {
+      leader_team
+    } else {
+      runner_up_team
+    }
+    target_name <- if (!is.na(leader_team) && leader_team != all_time_peak_team) {
+      leader_name
+    } else {
+      runner_up_name
+    }
+
+    if (!is.na(target_team) && !is.na(target_name)) {
+      tibble(
+        lens = "Peak Lens",
+        label = "歴代ピーク vs 現在上位",
+        team1 = all_time_peak_team,
+        team2 = target_team,
+        title = paste(all_time_peak_name, "vs", target_name),
+        note = paste0(
+          "歴代ピーク保持校と現在の上位校を直接比較します。歴代ピークは ",
+          sprintf("%.1f", all_time_peak_row$peak_rating[[1]]),
+          " です。"
+        )
+      )
+    } else {
+      tibble()
+    }
+  } else {
+    tibble()
+  },
+  if (!is.na(title_leader_team) && (!is.na(leader_team) || !is.na(all_time_peak_team))) {
+    target_team <- if (!is.na(leader_team) && leader_team != title_leader_team) {
+      leader_team
+    } else {
+      all_time_peak_team
+    }
+    target_name <- if (!is.na(leader_team) && leader_team != title_leader_team) {
+      leader_name
+    } else {
+      all_time_peak_name
+    }
+
+    if (!is.na(target_team) && !is.na(target_name)) {
+      tibble(
+        lens = "Dynasty Lens",
+        label = "終点首位回数の主役",
+        team1 = title_leader_team,
+        team2 = target_team,
+        title = paste(title_leader_name, "vs", target_name),
+        note = paste0(
+          "終点首位回数トップの大学から比較を始める入口です。首位回数は ",
+          title_leader_row$season_titles[[1]],
+          " 回です。"
+        )
+      )
+    } else {
+      tibble()
+    }
+  } else {
+    tibble()
+  },
+  if (nrow(top_season_record) > 0 && (!is.na(all_time_peak_team) || !is.na(leader_team))) {
+    target_team <- if (!is.na(all_time_peak_team) && all_time_peak_team != top_season_record$team[[1]]) {
+      all_time_peak_team
+    } else {
+      leader_team
+    }
+    target_name <- if (!is.na(all_time_peak_team) && all_time_peak_team != top_season_record$team[[1]]) {
+      all_time_peak_name
+    } else {
+      leader_name
+    }
+
+    if (!is.na(target_team) && !is.na(target_name)) {
+      tibble(
+        lens = "Season End",
+        label = "最強終点シーズン",
+        team1 = top_season_record$team[[1]],
+        team2 = target_team,
+        title = paste(top_season_record$TeamName[[1]], "vs", target_name),
+        note = paste0(
+          top_season_record$season_label[[1]],
+          " の最強終点校を、現在値や歴代ピークの軸で見直す比較です。"
+        )
+      )
+    } else {
+      tibble()
+    }
+  } else {
+    tibble()
+  },
+  if (nrow(top_upset) > 0) {
+    tibble(
+      lens = "Upset Replay",
+      label = "歴代最大アップセット",
+      team1 = top_upset$underdog[[1]],
+      team2 = top_upset$favorite[[1]],
+      title = paste(top_upset$underdog_name[[1]], "vs", top_upset$favorite_name[[1]]),
+      note = paste0(
+        format(top_upset$gamedate[[1]], "%Y/%m/%d"),
+        " の番狂わせカードを、通算比較ページで見直す入口です。"
+      )
+    )
+  } else {
+    tibble()
+  }
+) |>
+  filter(!is.na(team1), !is.na(team2), team1 != team2) |>
+  mutate(
+    pair_key = map2_chr(team1, team2, function(a, b) {
+      paste(sort(c(a, b)), collapse = "|")
+    }),
+    href = map2_chr(team1, team2, compare_url)
+  ) |>
+  distinct(pair_key, .keep_all = TRUE) |>
+  slice_head(n = 4) |>
+  select(-pair_key)
 ```
 
 ```{r hero}
@@ -904,6 +1162,7 @@ tagList(
     div(
       class = "anchor-nav",
       tags$a(href = "#year-archive", class = "anchor-link", "年次アーカイブ"),
+      tags$a(href = "#compare-launchpad", class = "anchor-link", "比較開始"),
       tags$a(href = "#record-board", class = "anchor-link", "記録ボード"),
       tags$a(href = "#season-leaders", class = "anchor-link", "シーズン首位"),
       tags$a(href = "#season-rankings", class = "anchor-link", "シーズン終点"),
@@ -965,6 +1224,7 @@ tagList(
     div(
       class = "section-rail-nav",
       tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
+      tags$a(href = "#compare-launchpad", class = "section-rail-link", "比較開始"),
       tags$a(href = "#record-board", class = "section-rail-link", "記録ボード"),
       tags$a(href = "#season-leaders", class = "section-rail-link", "シーズン首位"),
       tags$a(href = "#season-rankings", class = "section-rail-link", "シーズン終点"),
@@ -1048,6 +1308,43 @@ if (nrow(year_focus_cards) > 0) {
   )
 } else {
   div(class = "copy-shell", tags$p("表示できる年次アーカイブがありません。"))
+}
+```
+
+## 記録から比較を始める {#compare-launchpad}
+
+<div class="copy-shell">
+  <p class="section-lead">歴史ページを読むだけで終わらせず、気になった記録からそのまま 2 校比較へ進める入口を追加しました。現在値、歴代ピーク、選択年度の春秋終点を、記録の主役どうしで同じ比較面に載せられます。</p>
+  <p class="record-note">下の比較リンクには表示年度が引き継がれます。年次アーカイブで年を変えてから比較へ進む使い方もできます。</p>
+</div>
+
+```{r compare-launchpad}
+if (nrow(history_compare_shortcuts) > 0) {
+  div(
+    class = "compare-shortcut-grid",
+    lapply(seq_len(nrow(history_compare_shortcuts)), function(i) {
+      row <- history_compare_shortcuts[i, ]
+
+      div(
+        class = "compare-shortcut-card",
+        div(class = "compare-shortcut-label", row$lens),
+        div(class = "compare-shortcut-meta", row$label),
+        tags$a(
+          href = row$href,
+          class = "compare-shortcut-title",
+          row$title
+        ),
+        div(class = "compare-shortcut-note", row$note),
+        div(
+          class = "directory-link-row",
+          tags$a(href = row$href, class = "directory-link table-action-link", "比較ページへ"),
+          tags$a(href = team_url(row$team1), class = "directory-link compare-secondary-link", "大学詳細へ")
+        )
+      )
+    })
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる比較ショートカットがありません。"))
 }
 ```
 
@@ -1299,8 +1596,29 @@ div(
         format = colFormat(date = TRUE, locales = "ja-JP"),
         filterable = FALSE
       ),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 108,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- season_leaders[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(
+            row$team,
+            v,
+            label = row$compare_label[[1]]
+          )
+        }
+      ),
       team = colDef(show = FALSE),
-      c1 = colDef(show = FALSE)
+      c1 = colDef(show = FALSE),
+      leader_team = colDef(show = FALSE),
+      runner_up_team = colDef(show = FALSE),
+      compare_label = colDef(show = FALSE)
     )
   )
 )
@@ -1363,8 +1681,29 @@ div(
         format = colFormat(date = TRUE, locales = "ja-JP"),
         filterable = FALSE
       ),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 108,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- season_rankings[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(
+            row$team,
+            v,
+            label = row$compare_label[[1]]
+          )
+        }
+      ),
       team = colDef(show = FALSE),
-      c1 = colDef(show = FALSE)
+      c1 = colDef(show = FALSE),
+      leader_team = colDef(show = FALSE),
+      runner_up_team = colDef(show = FALSE),
+      compare_label = colDef(show = FALSE)
     )
   )
 )
@@ -1430,8 +1769,26 @@ div(
         )
       ),
       current_rank = colDef(name = "現在順位", width = 86, align = "center"),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 108,
+        align = "center",
+        cell = function(v, ri) {
+          row <- team_peaks[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(
+            row$team,
+            v,
+            label = row$compare_label[[1]]
+          )
+        }
+      ),
       team = colDef(show = FALSE),
-      c1 = colDef(show = FALSE)
+      c1 = colDef(show = FALSE),
+      compare_label = colDef(show = FALSE)
     )
   )
 )
@@ -1505,10 +1862,29 @@ div(
         filterable = FALSE,
         cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
       ),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 108,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- upset_games[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(
+            row$underdog,
+            v,
+            label = row$compare_label[[1]]
+          )
+        }
+      ),
       underdog = colDef(show = FALSE),
       favorite = colDef(show = FALSE),
       underdog_c1 = colDef(show = FALSE),
-      favorite_c1 = colDef(show = FALSE)
+      favorite_c1 = colDef(show = FALSE),
+      compare_label = colDef(show = FALSE)
     )
   )
 )
