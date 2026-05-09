@@ -1,5 +1,117 @@
 <script>
   (function () {
+    function initGlobalRouteBand() {
+      const content = document.querySelector("#quarto-document-content");
+      if (!content || content.querySelector(".site-route-band")) {
+        return;
+      }
+
+      const routes = [
+        {
+          key: "current",
+          label: "Current",
+          title: "現在の順位",
+          note: "今の勢力図を見る",
+          path: "index.html"
+        },
+        {
+          key: "browse",
+          label: "Browse",
+          title: "大学・リーグ一覧",
+          note: "対象から探す",
+          path: "explore.html"
+        },
+        {
+          key: "compare",
+          label: "Compare",
+          title: "2校比較",
+          note: "現在値と歴代差分を並べる",
+          path: "compare.html"
+        },
+        {
+          key: "history",
+          label: "History",
+          title: "歴史と記録",
+          note: "年次アーカイブをたどる",
+          path: "history.html"
+        },
+        {
+          key: "method",
+          label: "Method",
+          title: "計算方法",
+          note: "指標の意味を確認する",
+          path: "methodology.html"
+        }
+      ];
+
+      const path = window.location.pathname.toLowerCase();
+      let activeKey = "current";
+
+      if (/\/compare\.html$/i.test(path)) {
+        activeKey = "compare";
+      } else if (/\/history\.html$/i.test(path)) {
+        activeKey = "history";
+      } else if (/\/methodology\.html$/i.test(path)) {
+        activeKey = "method";
+      } else if (
+        /\/explore\.html$/i.test(path) ||
+        /\/league\//i.test(path) ||
+        /\/university\//i.test(path)
+      ) {
+        activeKey = "browse";
+      }
+
+      const selectedYear =
+        new URL(window.location.href).searchParams.get("year") ||
+        window.localStorage.getItem("cbr-selected-year");
+      const navbarBrand = document.querySelector(".navbar-brand");
+      const siteRootUrl = navbarBrand
+        ? new URL(navbarBrand.getAttribute("href"), window.location.href)
+        : new URL("index.html", window.location.href);
+
+      const band = document.createElement("nav");
+      band.className = "site-route-band";
+      band.setAttribute("aria-label", "サイト全体の導線");
+
+      const heading = document.createElement("div");
+      heading.className = "site-route-band-head";
+      heading.innerHTML =
+        '<div class="site-route-band-kicker">Site Modes</div>' +
+        '<div class="site-route-band-title">現在の強さと歴史探索を切り替える</div>' +
+        '<div class="site-route-band-copy">トップページ中心の移動ではなく、今を見る・対象を探す・2校を比べる・歴史をたどる、の4つの読み方でサイト全体を行き来しやすくします。</div>';
+
+      const grid = document.createElement("div");
+      grid.className = "site-route-grid";
+
+      routes.forEach(function (route) {
+        const link = document.createElement("a");
+        const targetUrl = new URL(route.path, siteRootUrl);
+
+        if (selectedYear) {
+          targetUrl.searchParams.set("year", selectedYear);
+        }
+
+        link.className = "site-route-card";
+        link.setAttribute("href", targetUrl.toString());
+        link.setAttribute("data-route-key", route.key);
+        if (route.key === activeKey) {
+          link.classList.add("is-active");
+          link.setAttribute("aria-current", "page");
+        }
+
+        link.innerHTML =
+          '<span class="site-route-label">' + route.label + "</span>" +
+          '<span class="site-route-title">' + route.title + "</span>" +
+          '<span class="site-route-note">' + route.note + "</span>";
+
+        grid.appendChild(link);
+      });
+
+      band.appendChild(heading);
+      band.appendChild(grid);
+      content.insertBefore(band, content.firstChild);
+    }
+
     function initSectionNavigation() {
       const links = Array.from(
         document.querySelectorAll(
@@ -487,6 +599,7 @@
     }
 
     function initPageChrome() {
+      initGlobalRouteBand();
       initSectionNavigation();
       initTableRegions();
       initCompareTableRegions();

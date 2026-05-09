@@ -903,6 +903,9 @@ league_rivalry_year_row <- league_rivalry_summary |>
   arrange(desc(games), desc(year), pair_team1_name, pair_team2_name) |>
   slice_head(n = 1)
 
+top_title_team <- season_title_board |> slice_head(n = 1)
+upset_record_board <- league_upset_wins |> slice_head(n = 10)
+
 year_jump_presets <- bind_rows(
   if (nrow(league_peak_year_row) > 0) {
     tibble(
@@ -997,9 +1000,6 @@ year_focus_cards <- bind_rows(
   year_focus |> filter(yr == "all"),
   year_focus |> filter(yr != "all")
 )
-
-top_title_team <- season_title_board |> slice_head(n = 1)
-upset_record_board <- league_upset_wins |> slice_head(n = 10)
 
 search_targets <- bind_rows(
   teams_info |>
