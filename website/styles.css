@@ -810,7 +810,7 @@ main.content {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 176px;
+  min-height: 196px;
   padding: 16px 18px;
   border-radius: 8px;
   background:
@@ -825,6 +825,14 @@ main.content {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.compare-shortcut-meta {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .compare-shortcut-title {

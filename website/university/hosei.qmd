@@ -235,6 +235,33 @@ league_peer_directory <- league_current_table |>
   ) |>
   arrange(league_rank)
 
+focus_peak_rating <- if (nrow(team_peak) > 0) {
+  team_peak$peak_rating[[1]]
+} else {
+  NA_real_
+}
+
+league_peer_title_board <- season_snapshots |>
+  filter(team %in% league_peer_teams, season_rank == 1) |>
+  left_join(
+    league_peer_info,
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  mutate(
+    season_label = paste0(yr_val, " ", season),
+    title_rating = round(display_rating, 1)
+  ) |>
+  arrange(team, desc(yr_val), desc(season == "秋"), desc(title_rating)) |>
+  group_by(team, TeamName, c1) |>
+  summarise(
+    season_titles = n(),
+    latest_title_label = first(season_label),
+    latest_title_rating = first(title_rating),
+    .groups = "drop"
+  ) |>
+  arrange(desc(season_titles), desc(latest_title_rating), TeamName)
+
 season_bg_df <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   select(gamedate, season) |>
@@ -696,11 +723,49 @@ opponent_summary_all <- team_games_base |>
 primary_opponent <- opponent_summary_all |>
   slice_head(n = 1)
 
+closest_current_peer <- bind_rows(
+  if (nrow(peer_above) > 0) {
+    tibble(
+      direction = "一つ上",
+      team = peer_above$team[[1]],
+      TeamName = peer_above$TeamName[[1]],
+      c1 = peer_above$c1[[1]],
+      league_rank = peer_above$league_rank[[1]],
+      rating = peer_above$display_rating[[1]],
+      gap = gap_to_above
+    )
+  },
+  if (nrow(peer_below) > 0) {
+    tibble(
+      direction = "一つ下",
+      team = peer_below$team[[1]],
+      TeamName = peer_below$TeamName[[1]],
+      c1 = peer_below$c1[[1]],
+      league_rank = peer_below$league_rank[[1]],
+      rating = peer_below$display_rating[[1]],
+      gap = gap_to_below
+    )
+  }
+) |>
+  filter(!is.na(team), !is.na(gap)) |>
+  arrange(gap, league_rank) |>
+  slice_head(n = 1)
+
+peak_benchmark <- league_peer_peaks |>
+  filter(team != TEAM, !is.na(peer_peak_rating)) |>
+  arrange(desc(peer_peak_rating), desc(peer_peak_date), TeamName) |>
+  slice_head(n = 1)
+
+title_benchmark <- league_peer_title_board |>
+  filter(team != TEAM, season_titles > 0) |>
+  slice_head(n = 1)
+
 comparison_shortcuts <- bind_rows(
   if (nrow(league_leader) > 0 && league_leader$team[[1]] != TEAM) {
     tibble(
       slot = 1L,
-      label = "League Leader",
+      lens = "Current Snapshot",
+      label = "現在の首位基準",
       team = league_leader$team[[1]],
       TeamName = league_leader$TeamName[[1]],
       c1 = league_leader$c1[[1]],
@@ -712,40 +777,72 @@ comparison_shortcuts <- bind_rows(
       )
     )
   },
-  if (nrow(peer_above) > 0) {
+  if (nrow(closest_current_peer) > 0) {
     tibble(
       slot = 2L,
-      label = "Above You",
-      team = peer_above$team[[1]],
-      TeamName = peer_above$TeamName[[1]],
-      c1 = peer_above$c1[[1]],
+      lens = "Current Race",
+      label = "最も近い順位帯",
+      team = closest_current_peer$team[[1]],
+      TeamName = closest_current_peer$TeamName[[1]],
+      c1 = closest_current_peer$c1[[1]],
       note = paste0(
-        "一つ上との差 ",
-        sprintf("%.1f", gap_to_above),
+        closest_current_peer$direction[[1]],
+        " / 差 ",
+        sprintf("%.1f", closest_current_peer$gap[[1]]),
         " / 現在リーグ #",
-        peer_above$league_rank[[1]]
+        closest_current_peer$league_rank[[1]],
+        " / レート ",
+        sprintf("%.1f", closest_current_peer$rating[[1]])
       )
     )
   },
-  if (nrow(peer_below) > 0) {
+  if (nrow(peak_benchmark) > 0) {
     tibble(
       slot = 3L,
-      label = "Below You",
-      team = peer_below$team[[1]],
-      TeamName = peer_below$TeamName[[1]],
-      c1 = peer_below$c1[[1]],
+      lens = "Historical Peak",
+      label = "歴代ピーク基準",
+      team = peak_benchmark$team[[1]],
+      TeamName = peak_benchmark$TeamName[[1]],
+      c1 = peak_benchmark$c1[[1]],
       note = paste0(
-        "一つ下との差 ",
-        sprintf("%.1f", gap_to_below),
-        " / 現在リーグ #",
-        peer_below$league_rank[[1]]
+        "歴代ピーク ",
+        sprintf("%.1f", peak_benchmark$peer_peak_rating[[1]]),
+        " / ",
+        format(peak_benchmark$peer_peak_date[[1]], "%Y/%m/%d"),
+        if (!is.na(focus_peak_rating)) {
+          paste0(
+            " / この大学との差 ",
+            sprintf("%+.1f", peak_benchmark$peer_peak_rating[[1]] - focus_peak_rating)
+          )
+        } else {
+          ""
+        }
+      )
+    )
+  },
+  if (nrow(title_benchmark) > 0) {
+    tibble(
+      slot = 4L,
+      lens = "Title History",
+      label = "終点首位回数の基準",
+      team = title_benchmark$team[[1]],
+      TeamName = title_benchmark$TeamName[[1]],
+      c1 = title_benchmark$c1[[1]],
+      note = paste0(
+        "終点首位 ",
+        title_benchmark$season_titles[[1]],
+        " 回 / 最新 ",
+        title_benchmark$latest_title_label[[1]],
+        " / 直近首位時レート ",
+        sprintf("%.1f", title_benchmark$latest_title_rating[[1]])
       )
     )
   },
   if (nrow(primary_opponent) > 0 && primary_opponent$team_b[[1]] %in% ranked_team_ids) {
     tibble(
-      slot = 4L,
-      label = "Frequent Opponent",
+      slot = 5L,
+      lens = "Rivalry Lens",
+      label = "最多対戦相手",
       team = primary_opponent$team_b[[1]],
       TeamName = primary_opponent$name_b[[1]],
       c1 = primary_opponent$c1_b[[1]],
@@ -757,13 +854,22 @@ comparison_shortcuts <- bind_rows(
         "-",
         primary_opponent$losses[[1]],
         "-",
-        primary_opponent$draws[[1]]
+        primary_opponent$draws[[1]],
+        if (!is.na(primary_opponent$latest_date[[1]])) {
+          paste0(
+            " / 直近 ",
+            format(primary_opponent$latest_date[[1]], "%Y/%m/%d"),
+            " ",
+            primary_opponent$latest_score[[1]]
+          )
+        } else {
+          ""
+        }
       )
     )
   }
 ) |>
   filter(!is.na(team), team != TEAM) |>
-  distinct(team, .keep_all = TRUE) |>
   arrange(slot)
 
 team_games <- team_games_base |>
@@ -1483,11 +1589,11 @@ tagList(
         class = "copy-shell",
         tags$p(
           class = "section-lead",
-          "比較デスクへすぐ送れる組み合わせを、この大学の現在地に近い相手からまとめました。選択年度はそのまま引き継がれるので、現在比較から年度比較へそのまま移れます。"
+          "比較デスクへすぐ送れる組み合わせを、現在地・歴代ピーク・終点首位・対戦履歴の各レンズからまとめました。今の勢力図を見る入口と、歴史を基準に見比べる入口を同じ場所に置いています。"
         ),
         tags$p(
           class = "record-note",
-          "相手校を手で選び直さずに、上位争い・近接順位・主要対戦相手の比較へ入るためのショートカットです。"
+          "選択年度はそのまま引き継がれるので、現在比較から年別比較へそのまま移れます。相手校を手で選び直さずに、いま強い相手と歴史的な基準の両方へ飛べる比較ナビです。"
         )
       ),
       div(
@@ -1496,7 +1602,8 @@ tagList(
           row <- comparison_shortcuts[i, ]
           tags$article(
             class = "compare-shortcut-card",
-            div(class = "compare-shortcut-label", row$label),
+            div(class = "compare-shortcut-label", row$lens),
+            div(class = "compare-shortcut-meta", row$label),
             tags$a(
               href = compare_url(TEAM, row$team),
               class = "compare-shortcut-title",
