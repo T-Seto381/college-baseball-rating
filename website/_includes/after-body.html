@@ -299,9 +299,197 @@
       });
     }
 
+    function initCompareTableRegions() {
+      const shells = Array.from(document.querySelectorAll(".compare-table-shell"));
+
+      if (!shells.length) {
+        return;
+      }
+
+      function normalizeLabel(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+      }
+
+      function resolveTableLabel(shell) {
+        const title = shell.querySelector(":scope > .compare-table-head .compare-table-title");
+        if (title) {
+          const directLabel = normalizeLabel(title.textContent);
+          if (directLabel) {
+            return directLabel;
+          }
+        }
+
+        const section = shell.closest("section");
+        if (section) {
+          const heading = section.querySelector(":scope > h2, :scope > h3");
+          if (heading) {
+            const sectionLabel = normalizeLabel(heading.textContent);
+            if (sectionLabel) {
+              return sectionLabel;
+            }
+          }
+        }
+
+        let node = shell.previousElementSibling;
+        while (node) {
+          if (/^H[1-6]$/.test(node.tagName)) {
+            const label = normalizeLabel(node.textContent);
+            if (label) {
+              return label;
+            }
+          }
+          node = node.previousElementSibling;
+        }
+
+        return "比較表";
+      }
+
+      shells.forEach(function (shell) {
+        let meta = shell.querySelector(":scope > .table-scroll-meta");
+        if (!meta) {
+          meta = document.createElement("div");
+          meta.className = "table-scroll-meta";
+          meta.hidden = true;
+
+          const hint = document.createElement("span");
+          hint.className = "table-scroll-hint";
+          hint.textContent = "左右にスクロール";
+
+          meta.appendChild(hint);
+          shell.insertBefore(meta, shell.firstChild);
+        }
+
+        const hint = meta.querySelector(".table-scroll-hint");
+        let framePending = false;
+
+        function updateScrollableState() {
+          const region = shell.querySelector(":scope > .compare-table-region");
+
+          if (!region) {
+            meta.hidden = true;
+            shell.classList.remove("is-scrollable", "is-scrolled-start", "is-scrolled-end");
+            return;
+          }
+
+          const scrollable = region.scrollWidth > region.clientWidth + 12;
+          const atStart = region.scrollLeft <= 4;
+          const atEnd =
+            region.scrollLeft + region.clientWidth >= region.scrollWidth - 4;
+          const label = resolveTableLabel(shell);
+
+          shell.classList.toggle("is-scrollable", scrollable);
+          shell.classList.toggle("is-scrolled-start", atStart);
+          shell.classList.toggle("is-scrolled-end", atEnd);
+          meta.hidden = !scrollable;
+
+          if (scrollable) {
+            region.tabIndex = 0;
+            region.setAttribute("role", "region");
+            region.setAttribute(
+              "aria-label",
+              label + " の表。左右にスクロールできます。"
+            );
+            if (hint) {
+              hint.textContent = atEnd ? "表の右端です" : "左右にスクロール";
+            }
+          } else {
+            region.removeAttribute("tabindex");
+            region.removeAttribute("role");
+            region.removeAttribute("aria-label");
+            if (hint) {
+              hint.textContent = "左右にスクロール";
+            }
+          }
+        }
+
+        function queueUpdate() {
+          if (framePending) {
+            return;
+          }
+
+          framePending = true;
+          window.requestAnimationFrame(function () {
+            updateScrollableState();
+            framePending = false;
+          });
+        }
+
+        function bindRegion(region) {
+          if (!region || region.dataset.cbrCompareTableBound === "true") {
+            return;
+          }
+
+          region.dataset.cbrCompareTableBound = "true";
+          region.addEventListener("scroll", queueUpdate, { passive: true });
+          region.addEventListener("keydown", function (event) {
+            if (!shell.classList.contains("is-scrollable")) {
+              return;
+            }
+
+            let nextLeft = null;
+
+            if (event.key === "ArrowRight") {
+              nextLeft = region.scrollLeft + 120;
+            } else if (event.key === "ArrowLeft") {
+              nextLeft = region.scrollLeft - 120;
+            } else if (event.key === "End") {
+              nextLeft = region.scrollWidth;
+            } else if (event.key === "Home") {
+              nextLeft = 0;
+            }
+
+            if (nextLeft === null) {
+              return;
+            }
+
+            event.preventDefault();
+            region.scrollTo({
+              left: nextLeft,
+              behavior: "smooth"
+            });
+          });
+
+          if (typeof ResizeObserver === "function") {
+            const resizeObserver = new ResizeObserver(queueUpdate);
+            resizeObserver.observe(region);
+
+            const table = region.querySelector("table");
+            if (table) {
+              resizeObserver.observe(table);
+            }
+          } else {
+            window.addEventListener("resize", queueUpdate);
+          }
+        }
+
+        if (!shell.dataset.cbrCompareShellObserved) {
+          shell.dataset.cbrCompareShellObserved = "true";
+
+          if (typeof MutationObserver === "function") {
+            const observer = new MutationObserver(function () {
+              bindRegion(shell.querySelector(":scope > .compare-table-region"));
+              queueUpdate();
+            });
+
+            observer.observe(shell, {
+              childList: true,
+              subtree: true,
+              attributes: true
+            });
+          }
+        }
+
+        bindRegion(shell.querySelector(":scope > .compare-table-region"));
+        queueUpdate();
+        window.setTimeout(queueUpdate, 240);
+        window.setTimeout(queueUpdate, 1000);
+      });
+    }
+
     function initPageChrome() {
       initSectionNavigation();
       initTableRegions();
+      initCompareTableRegions();
     }
 
     if (document.readyState === "loading") {
@@ -311,5 +499,6 @@
     }
 
     window.addEventListener("load", initTableRegions);
+    window.addEventListener("load", initCompareTableRegions);
   })();
 </script>
