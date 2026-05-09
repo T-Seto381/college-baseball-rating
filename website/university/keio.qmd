@@ -285,6 +285,71 @@ year_summary <- tibble(yr = as.character(available_yrs)) |>
   mutate(year = as.integer(yr)) |>
   arrange(desc(year))
 
+year_focus <- year_summary |>
+  transmute(
+    yr,
+    year_label = paste0(yr, "年"),
+    peak_title = ifelse(is.na(peak_rating), "記録なし", sprintf("%.1f", peak_rating)),
+    peak_note = ifelse(
+      is.na(peak_date),
+      "該当データなし",
+      paste0(format(peak_date, "%m/%d"), " に年間ピーク")
+    ),
+    spring_title = ifelse(
+      is.na(spring_end_rating) | is.na(spring_end_rank),
+      "記録なし",
+      paste0(sprintf("%.1f", spring_end_rating), " / #", spring_end_rank)
+    ),
+    spring_note = ifelse(
+      is.na(spring_end_date),
+      "春季データなし",
+      paste0(format(spring_end_date, "%m/%d"), " の終了時点")
+    ),
+    fall_title = ifelse(
+      is.na(fall_end_rating) | is.na(fall_end_rank),
+      "記録なし",
+      paste0(sprintf("%.1f", fall_end_rating), " / #", fall_end_rank)
+    ),
+    fall_note = ifelse(
+      is.na(fall_end_date),
+      "秋季データなし",
+      paste0(format(fall_end_date, "%m/%d"), " の終了時点")
+    ),
+    upset_title = coalesce(upset_name, "記録なし"),
+    upset_note = ifelse(
+      is.na(upset_date) | is.na(upset_win_prob) | is.na(upset_score),
+      "該当試合なし",
+      paste0(
+        format(upset_date, "%m/%d"),
+        "  ",
+        upset_score,
+        "  勝率 ",
+        sprintf("%.1f%%", 100 * upset_win_prob)
+      )
+    )
+  )
+
+year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
+
+default_focus <- year_focus |>
+  filter(yr == default_yr) |>
+  slice(1)
+
+if (nrow(default_focus) == 0) {
+  default_focus <- tibble(
+    yr = default_yr,
+    year_label = paste0(default_yr, "年"),
+    peak_title = "記録なし",
+    peak_note = "該当データなし",
+    spring_title = "記録なし",
+    spring_note = "春季データなし",
+    fall_title = "記録なし",
+    fall_note = "秋季データなし",
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
 latest_opponent_games <- team_games_base |>
   arrange(desc(gamedate)) |>
   group_by(yr, team_b) |>
@@ -394,6 +459,7 @@ hero_script <- glue::glue(
   "
   (function() {{
     const targets = {search_targets_json};
+    const yearFocus = {year_focus_json};
     const defaultYear = '{default_yr}';
     const plotSelector = '#team-rating-chart .plotly, #team-rating-chart .js-plotly-plot';
     const tableFilters = [
@@ -417,8 +483,32 @@ hero_script <- glue::glue(
       }});
     }}
 
+    function bindText(key, value) {{
+      document.querySelectorAll('[data-team-bind=\"' + key + '\"]').forEach(function(node) {{
+        node.textContent = value || '';
+      }});
+    }}
+
+    function renderFocus(year) {{
+      const summary =
+        yearFocus.find(function(item) {{ return item.yr === String(year); }}) ||
+        yearFocus[0];
+      if (!summary) return;
+
+      bindText('year-label', summary.year_label);
+      bindText('peak-title', summary.peak_title);
+      bindText('peak-note', summary.peak_note);
+      bindText('spring-title', summary.spring_title);
+      bindText('spring-note', summary.spring_note);
+      bindText('fall-title', summary.fall_title);
+      bindText('fall-note', summary.fall_note);
+      bindText('upset-title', summary.upset_title);
+      bindText('upset-note', summary.upset_note);
+    }}
+
     function applyYear(year) {{
       syncYear(year);
+      renderFocus(year);
 
       function updateTables() {{
         if (window.Reactable) {{
@@ -693,6 +783,42 @@ tagList(
         div(class = "comparison-glance-note", "この下に比較相手はいません。")
       }
     )
+  ),
+  div(
+    class = "year-focus-shell year-focus-shell-standalone",
+    div(
+      class = "year-focus-header",
+      div(class = "control-label", "選択年度の見どころ"),
+      div(class = "year-focus-year", `data-team-bind` = "year-label", default_focus$year_label[[1]])
+    ),
+    div(
+      class = "year-focus-grid year-focus-grid-wide",
+      div(
+        class = "year-focus-card",
+        div(class = "year-focus-label", "年間ピーク"),
+        div(class = "year-focus-value", `data-team-bind` = "peak-title", default_focus$peak_title[[1]]),
+        div(class = "year-focus-note", `data-team-bind` = "peak-note", default_focus$peak_note[[1]])
+      ),
+      div(
+        class = "year-focus-card",
+        div(class = "year-focus-label", "春終点"),
+        div(class = "year-focus-value", `data-team-bind` = "spring-title", default_focus$spring_title[[1]]),
+        div(class = "year-focus-note", `data-team-bind` = "spring-note", default_focus$spring_note[[1]])
+      ),
+      div(
+        class = "year-focus-card",
+        div(class = "year-focus-label", "秋終点"),
+        div(class = "year-focus-value", `data-team-bind` = "fall-title", default_focus$fall_title[[1]]),
+        div(class = "year-focus-note", `data-team-bind` = "fall-note", default_focus$fall_note[[1]])
+      ),
+      div(
+        class = "year-focus-card",
+        div(class = "year-focus-label", "最大アップセット勝利"),
+        div(class = "year-focus-value", `data-team-bind` = "upset-title", default_focus$upset_title[[1]]),
+        div(class = "year-focus-note", `data-team-bind` = "upset-note", default_focus$upset_note[[1]])
+      )
+    ),
+    div(class = "record-note", "表示年度を切り替えると、この要約に加えて年度別サマリー表、対戦相手比較、試合一覧、シーズン終点、推移グラフも連動します。")
   ),
   div(
     class = "history-snapshot-grid",
