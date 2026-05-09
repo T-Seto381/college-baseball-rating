@@ -1432,6 +1432,8 @@ h3 {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 20px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .section-rail {
@@ -1484,11 +1486,15 @@ h3 {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .section-rail-link {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-height: 34px;
   padding: 0 12px;
   border-radius: 999px;
@@ -1654,7 +1660,10 @@ div[id] {
   }
 
   .section-rail-nav {
+    flex-wrap: nowrap;
     justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 }
 
@@ -1713,6 +1722,12 @@ div[id] {
   .directory-grid,
   .directory-meta-grid {
     grid-template-columns: 1fr;
+  }
+
+  .anchor-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 
   .section-rail {

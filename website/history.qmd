@@ -794,6 +794,30 @@ tagList(
       div(class = "route-copy", "歴代比較に使っているレーティングの前提と指標の意味を整理しています。"),
       div(class = "route-link", "方法を見る →")
     )
+  ),
+  div(
+    class = "section-rail",
+    div(
+      class = "section-rail-head",
+      div(
+        class = "section-rail-year",
+        `data-history-bind` = "year-label",
+        ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+      ),
+      div(
+        class = "section-rail-note",
+        "年度切替に合わせて年次アーカイブ、記録ボード、シーズン終点表、アップセット一覧を横断して見直せます。大学別ピークは全期間固定です。"
+      )
+    ),
+    div(
+      class = "section-rail-nav",
+      tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
+      tags$a(href = "#record-board", class = "section-rail-link", "記録ボード"),
+      tags$a(href = "#season-leaders", class = "section-rail-link", "シーズン首位"),
+      tags$a(href = "#season-rankings", class = "section-rail-link", "シーズン終点"),
+      tags$a(href = "#team-peaks", class = "section-rail-link", "大学別ピーク"),
+      tags$a(href = "#upsets", class = "section-rail-link", "アップセット")
+    )
   )
 )
 ```
