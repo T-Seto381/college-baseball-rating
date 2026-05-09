@@ -421,6 +421,27 @@ main.content {
   text-decoration: none;
 }
 
+.team-context-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.focus-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(31, 93, 77, 0.1);
+  color: var(--accent);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .comparison-glance-note {
   margin-top: 8px;
   color: var(--ink-faint);

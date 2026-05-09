@@ -75,6 +75,10 @@ team_info <- teams_info |> filter(TeamShortName == TEAM) |> slice(1)
 team_full_name <- if (nrow(team_info) > 0) team_info$TeamName else TEAM
 league_name <- if (nrow(team_info) > 0) team_info$LeagueName else "不明"
 c1 <- if (nrow(team_info) > 0) team_info$c1 else "#17324A"
+league_peer_info <- teams_info |>
+  filter(LeagueName == league_name, !is.na(TeamShortName), !is.na(TeamName)) |>
+  distinct(TeamShortName, TeamName, c1)
+league_peer_teams <- league_peer_info$TeamShortName
 
 all_ranked <- final_ratings |> arrange(rank)
 team_row <- all_ranked |> filter(team == TEAM)
@@ -285,6 +289,70 @@ year_summary <- tibble(yr = as.character(available_yrs)) |>
   left_join(year_best_win, by = "yr") |>
   mutate(year = as.integer(yr)) |>
   arrange(desc(year))
+
+league_year_peaks <- rating_hist |>
+  filter(team %in% league_peer_teams, year(date) %in% available_yrs, date <= Sys.Date()) |>
+  left_join(
+    league_peer_info,
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  mutate(
+    yr = as.character(year(date)),
+    year = year(date)
+  ) |>
+  group_by(yr, year, team, TeamName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  group_by(yr) |>
+  mutate(peak_rank = rank(desc(display_rating), ties.method = "min")) |>
+  ungroup() |>
+  transmute(
+    yr,
+    year,
+    team,
+    TeamName,
+    c1,
+    peak_rank,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+league_year_season <- season_snapshots |>
+  left_join(
+    league_peer_info,
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  transmute(
+    yr = as.character(yr_val),
+    year = yr_val,
+    team,
+    TeamName,
+    c1,
+    season_slot = if_else(season == "春", "spring", "fall"),
+    end_rank = season_rank,
+    end_rating = round(display_rating, 1),
+    end_date
+  ) |>
+  pivot_wider(
+    names_from = season_slot,
+    values_from = c(end_rank, end_rating, end_date),
+    names_glue = "{season_slot}_{.value}"
+  )
+
+league_year_context <- full_join(
+  league_year_peaks,
+  league_year_season,
+  by = c("yr", "year", "team", "TeamName", "c1")
+) |>
+  mutate(
+    focus_team = team == TEAM,
+    sort_fall = coalesce(fall_end_rank, 999L),
+    sort_spring = coalesce(spring_end_rank, 999L),
+    sort_peak = coalesce(peak_rank, 999L)
+  ) |>
+  arrange(desc(year), sort_fall, sort_spring, sort_peak, TeamName)
 
 year_focus <- year_summary |>
   transmute(
@@ -557,6 +625,7 @@ hero_script <- glue::glue(
     const plotSelector = '#team-rating-chart .plotly, #team-rating-chart .js-plotly-plot';
     const tableFilters = [
       ['team-year-summary-table', 'yr'],
+      ['team-league-context-table', 'yr'],
       ['team-opponent-table', 'yr'],
       ['team-games-table', 'yr'],
       ['team-season-table', 'yr']
@@ -1007,6 +1076,7 @@ tagList(
       class = "section-rail-nav",
       tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
       tags$a(href = "#year-summary", class = "section-rail-link", "年度別サマリー"),
+      tags$a(href = "#league-context", class = "section-rail-link", "同年リーグ比較"),
       tags$a(href = "#opponent-comparison", class = "section-rail-link", "対戦相手比較"),
       tags$a(href = "#rating-trend", class = "section-rail-link", "レーティング推移"),
       tags$a(href = "#games", class = "section-rail-link", "試合一覧"),
@@ -1188,6 +1258,130 @@ if (nrow(year_summary) > 0) {
   )
 } else {
   div(class = "copy-shell", tags$p("表示できる年度別サマリーデータがありません。"))
+}
+```
+
+## 同年リーグ内比較 {#league-context}
+
+<div class="copy-shell">
+  <p class="section-lead">選択年度について、同じリーグの各大学を年間ピークと春秋終点で横並びにした比較表です。個別の試合一覧へ降りる前に、その年のリーグ内でどの位置にいたかを確認できます。</p>
+  <p class="record-note">表示年度を切り替えると1年分に絞り込まれます。全期間を選ぶと年度列つきの通年一覧として見られます。</p>
+</div>
+
+```{r league-context-table}
+league_peak_summary_cell <- function(rank_val, rating_val, date_val) {
+  if (is.na(rank_val) || is.na(rating_val) || is.na(date_val)) {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+  tags$div(
+    class = "mini-stack",
+    tags$span(class = "rating-number", sprintf("%.1f", rating_val)),
+    tags$span(class = "rating-badge", paste0("リーグ内 #", rank_val, " / ", format(date_val, "%m/%d")))
+  )
+}
+
+league_context_team_cell <- function(name, team, color, is_focus) {
+  tags$div(
+    class = "team-name-cell",
+    tags$div(class = "team-color-bar", style = paste0("background:", color)),
+    tags$div(
+      class = "mini-stack",
+      tags$div(
+        class = "team-context-row",
+        tags$a(
+          href = team_url(team),
+          class = "team-name-link",
+          style = paste0("color:", color),
+          name
+        ),
+        if (is_focus) tags$span(class = "focus-chip", "この大学")
+      )
+    )
+  )
+}
+
+if (nrow(league_year_context) > 0) {
+  div(
+    class = "table-shell",
+    reactable(
+      league_year_context,
+      filterable = TRUE,
+      defaultPageSize = 6,
+      showPageSizeOptions = TRUE,
+      pageSizeOptions = c(6, 12, 24),
+      highlight = TRUE,
+      defaultSorted = list(
+        year = "desc",
+        fall_end_rank = "asc",
+        spring_end_rank = "asc",
+        peak_rank = "asc"
+      ),
+      elementId = "team-league-context-table",
+      columns = list(
+        yr = colDef(show = FALSE, filterable = TRUE),
+        year = colDef(name = "年", width = 72, align = "center", filterable = FALSE),
+        TeamName = colDef(
+          name = "大学",
+          minWidth = 190,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            row <- league_year_context[ri, ]
+            league_context_team_cell(v, row$team, row$c1, row$focus_team)
+          }
+        ),
+        peak_rating = colDef(
+          name = "年間ピーク",
+          minWidth = 150,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            league_peak_summary_cell(
+              league_year_context$peak_rank[[ri]],
+              v,
+              league_year_context$peak_date[[ri]]
+            )
+          }
+        ),
+        spring_end_rating = colDef(
+          name = "春終点",
+          minWidth = 144,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            season_summary_cell(
+              league_year_context$spring_end_rank[[ri]],
+              v,
+              league_year_context$spring_end_date[[ri]]
+            )
+          }
+        ),
+        fall_end_rating = colDef(
+          name = "秋終点",
+          minWidth = 144,
+          filterable = FALSE,
+          cell = function(v, ri) {
+            season_summary_cell(
+              league_year_context$fall_end_rank[[ri]],
+              v,
+              league_year_context$fall_end_date[[ri]]
+            )
+          }
+        ),
+        team = colDef(show = FALSE),
+        c1 = colDef(show = FALSE),
+        focus_team = colDef(show = FALSE),
+        peak_rank = colDef(show = FALSE),
+        peak_date = colDef(show = FALSE),
+        spring_end_rank = colDef(show = FALSE),
+        spring_end_date = colDef(show = FALSE),
+        fall_end_rank = colDef(show = FALSE),
+        fall_end_date = colDef(show = FALSE),
+        sort_fall = colDef(show = FALSE),
+        sort_spring = colDef(show = FALSE),
+        sort_peak = colDef(show = FALSE)
+      )
+    )
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる同年リーグ比較データがありません。"))
 }
 ```
 
