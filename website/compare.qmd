@@ -66,6 +66,24 @@ league_url <- function(league, prefix = "") {
   paste0(prefix, "league/", slug, ".html")
 }
 
+compare_url <- function(team1, team2, prefix = "") {
+  if (
+    is.null(team1) || is.null(team2) ||
+      is.na(team1) || is.na(team2) ||
+      identical(team1, team2)
+  ) {
+    return("#")
+  }
+
+  paste0(
+    prefix,
+    "compare.html?team1=",
+    utils::URLencode(team1, reserved = TRUE),
+    "&team2=",
+    utils::URLencode(team2, reserved = TRUE)
+  )
+}
+
 analysis_games <- game_results |>
   filter(gamedate <= Sys.Date())
 
@@ -349,6 +367,151 @@ h2h_yearly <- h2h_year_summary |>
 h2h_all <- h2h_all_summary |>
   left_join(h2h_all_latest, by = c("pair_a", "pair_b")) |>
   left_join(h2h_all_upset, by = c("pair_a", "pair_b"))
+
+current_adjacent_pairs <- current_teams |>
+  transmute(
+    team1 = team,
+    name1 = TeamName,
+    rank1 = current_rank,
+    team2 = dplyr::lead(team),
+    name2 = dplyr::lead(TeamName),
+    rank2 = dplyr::lead(current_rank),
+    rating_gap = abs(dplyr::lead(current_rating) - current_rating)
+  ) |>
+  filter(!is.na(team2)) |>
+  arrange(rating_gap, rank1)
+
+peak_pair <- team_overview |>
+  arrange(desc(peak_rating), desc(current_rating), TeamName) |>
+  slice_head(n = 2)
+
+rivalry_showcase <- h2h_all |>
+  left_join(
+    current_teams |> select(team, name_a = TeamName),
+    by = c("pair_a" = "team")
+  ) |>
+  left_join(
+    current_teams |> select(team, name_b = TeamName),
+    by = c("pair_b" = "team")
+  ) |>
+  filter(!is.na(name_a), !is.na(name_b))
+
+compare_shortcuts <- bind_rows(
+  if (nrow(current_teams) >= 2) {
+    tibble(
+      lens = "Current Table",
+      label = paste0(
+        "現在 #",
+        current_teams$current_rank[[1]],
+        " vs #",
+        current_teams$current_rank[[2]]
+      ),
+      title = paste(current_teams$TeamName[[1]], "vs", current_teams$TeamName[[2]]),
+      note = paste0(
+        "最新順位の先頭 2 校です。現在レート差は ",
+        sprintf("%.1f", abs(current_teams$current_rating[[1]] - current_teams$current_rating[[2]])),
+        " です。"
+      ),
+      team1 = current_teams$team[[1]],
+      team2 = current_teams$team[[2]]
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(current_adjacent_pairs) > 0) {
+    tibble(
+      lens = "Closest Gap",
+      label = paste0(
+        "#",
+        current_adjacent_pairs$rank1[[1]],
+        " と #",
+        current_adjacent_pairs$rank2[[1]],
+        " の最小差"
+      ),
+      title = paste(current_adjacent_pairs$name1[[1]], "vs", current_adjacent_pairs$name2[[1]]),
+      note = paste0(
+        "現在順位で最も差が小さい隣接ペアです。レート差は ",
+        sprintf("%.1f", current_adjacent_pairs$rating_gap[[1]]),
+        " です。"
+      ),
+      team1 = current_adjacent_pairs$team1[[1]],
+      team2 = current_adjacent_pairs$team2[[1]]
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(peak_pair) >= 2) {
+    tibble(
+      lens = "Peak Ceiling",
+      label = "歴代ピーク上位同士",
+      title = paste(peak_pair$TeamName[[1]], "vs", peak_pair$TeamName[[2]]),
+      note = paste0(
+        "歴代ピークは ",
+        sprintf("%.1f", peak_pair$peak_rating[[1]]),
+        " と ",
+        sprintf("%.1f", peak_pair$peak_rating[[2]]),
+        "。現在値ではなく天井差から比べる入口です。"
+      ),
+      team1 = peak_pair$team[[1]],
+      team2 = peak_pair$team[[2]]
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(rivalry_showcase) > 0) {
+    rivalry_top <- rivalry_showcase |>
+      arrange(desc(games), desc(year_count), desc(latest_date), name_a, name_b) |>
+      slice_head(n = 1)
+
+    tibble(
+      lens = "Long Rivalry",
+      label = paste0(
+        "通算 ",
+        rivalry_top$games[[1]],
+        " 試合 / ",
+        rivalry_top$year_count[[1]],
+        " 年"
+      ),
+      title = paste(rivalry_top$name_a[[1]], "vs", rivalry_top$name_b[[1]]),
+      note = paste0(
+        "最も対戦数の多いカードです。直近対戦は ",
+        format(rivalry_top$latest_date[[1]], "%Y/%m/%d"),
+        " です。"
+      ),
+      team1 = rivalry_top$pair_a[[1]],
+      team2 = rivalry_top$pair_b[[1]]
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(rivalry_showcase |> filter(!is.na(upset_prob))) > 0) {
+    upset_top <- rivalry_showcase |>
+      filter(!is.na(upset_prob)) |>
+      arrange(upset_prob, desc(games), desc(upset_date), name_a, name_b) |>
+      slice_head(n = 1)
+
+    tibble(
+      lens = "Upset Replay",
+      label = paste0("番狂わせ勝率 ", sprintf("%.1f%%", 100 * upset_top$upset_prob[[1]])),
+      title = paste(upset_top$name_a[[1]], "vs", upset_top$name_b[[1]]),
+      note = paste0(
+        "このカードで最も低い事前勝率の勝利は ",
+        format(upset_top$upset_date[[1]], "%Y/%m/%d"),
+        " に発生しています。"
+      ),
+      team1 = upset_top$pair_a[[1]],
+      team2 = upset_top$pair_b[[1]]
+    )
+  } else {
+    tibble()
+  }
+) |>
+  mutate(
+    pair_key = map2_chr(team1, team2, ~ paste(sort(c(.x, .y)), collapse = "|"))
+  ) |>
+  distinct(pair_key, .keep_all = TRUE) |>
+  slice_head(n = 4) |>
+  select(-pair_key)
 
 team_entries <- current_teams |>
   transmute(
@@ -702,7 +865,7 @@ compare_script <- paste(
   "    const record = orientRecord(getH2HYear(teamA, teamB, year), teamA, teamB);",
   "    const isActive = String(year) === String(selectedYear);",
   "    return '' +",
-  "      '<tr class=\"compare-yearbook-row' + (isActive ? ' is-active' : '') + '\" data-compare-year-row=\"' + escapeHtml(year) + '\">' +",
+  "      '<tr class=\"compare-yearbook-row' + (isActive ? ' is-active' : '') + '\" data-compare-year-row=\"' + escapeHtml(year) + '\" tabindex=\"0\" role=\"button\" aria-pressed=\"' + (isActive ? 'true' : 'false') + '\" aria-label=\"' + escapeHtml(year + '年の比較へ切り替え') + '\">' +",
   "        '<th scope=\"row\">' + escapeHtml(String(year)) + '</th>' +",
   "        '<td>' + valueBlock(statsA && statsA.peak_rating != null ? fmtNumber(statsA.peak_rating) : '—', statsA && statsA.peak_date ? shortDate(statsA.peak_date) : '該当データなし', teamAInfo.color) + '</td>' +",
   "        '<td>' + valueBlock(statsA && statsA.spring_end_rating != null ? fmtNumber(statsA.spring_end_rating) : '—', statsA && statsA.spring_end_rank != null ? '#' + fmtInt(statsA.spring_end_rank) + ' / ' + shortDate(statsA.spring_end_date) : '春季データなし', teamAInfo.color) + '</td>' +",
@@ -716,7 +879,7 @@ compare_script <- paste(
   "  target.innerHTML = '' +",
   "    '<div class=\"compare-table-head\">' +",
   "      '<div class=\"compare-table-title\">年次比較一覧</div>' +",
-  "      '<div class=\"compare-table-note\">行を押すとその年に切り替わります。全期間を選ぶと通年索引として一覧できます。</div>' +",
+  "      '<div class=\"compare-table-note\">行を押すか Enter キーでその年に切り替わります。全期間を選ぶと通年索引として一覧できます。</div>' +",
   "    '</div>' +",
   "    '<div class=\"compare-table-region\">' +",
   "      '<table class=\"compare-yearbook-table\">' +",
@@ -762,6 +925,12 @@ compare_script <- paste(
   "  const selectB = document.querySelector('[data-compare-select=\"b\"]');",
   "  const selectYear = document.querySelector('[data-global-year]');",
   "  const swapButton = document.querySelector('[data-compare-swap]');",
+  "  function scrollToSummary(targetId) {",
+  "    const target = document.querySelector(targetId || '#current-comparison');",
+  "    if (target) {",
+  "      target.scrollIntoView({ behavior: 'smooth', block: 'start' });",
+  "    }",
+  "  }",
   "  function rerenderFromControls() {",
   "    render(selectA.value, selectB.value, selectYear.value);",
   "  }",
@@ -776,15 +945,30 @@ compare_script <- paste(
   "    });",
   "  }",
   "  document.body.addEventListener('click', function (event) {",
+  "    const preset = event.target.closest('[data-compare-preset]');",
+  "    if (preset) {",
+  "      const nextA = preset.getAttribute('data-compare-preset-a');",
+  "      const nextB = preset.getAttribute('data-compare-preset-b');",
+  "      render(nextA, nextB, selectYear.value);",
+  "      scrollToSummary('#current-comparison');",
+  "      return;",
+  "    }",
   "    const row = event.target.closest('[data-compare-year-row]');",
   "    if (!row) return;",
   "    const nextYear = row.getAttribute('data-compare-year-row');",
   "    if (!nextYear) return;",
   "    render(selectA.value, selectB.value, nextYear);",
-  "    const summary = document.querySelector('#selected-year-comparison');",
-  "    if (summary) {",
-  "      summary.scrollIntoView({ behavior: 'smooth', block: 'start' });",
-  "    }",
+  "    scrollToSummary('#selected-year-comparison');",
+  "  });",
+  "  document.body.addEventListener('keydown', function (event) {",
+  "    const row = event.target.closest('[data-compare-year-row]');",
+  "    if (!row) return;",
+  "    if (event.key !== 'Enter' && event.key !== ' ') return;",
+  "    event.preventDefault();",
+  "    const nextYear = row.getAttribute('data-compare-year-row');",
+  "    if (!nextYear) return;",
+  "    render(selectA.value, selectB.value, nextYear);",
+  "    scrollToSummary('#selected-year-comparison');",
   "  });",
   "});",
   "}());",
@@ -875,6 +1059,7 @@ tagList(
     ),
     div(
       class = "anchor-nav",
+      tags$a(href = "#shortcut-deck", class = "anchor-link", "比較ショートカット"),
       tags$a(href = "#current-comparison", class = "anchor-link", "比較サマリー"),
       tags$a(href = "#selected-year-comparison", class = "anchor-link", "選択年度"),
       tags$a(href = "#head-to-head", class = "anchor-link", "直接対戦"),
@@ -903,6 +1088,7 @@ div(
   ),
   div(
     class = "section-rail-nav",
+    tags$a(href = "#shortcut-deck", class = "section-rail-link", "比較ショートカット"),
     tags$a(href = "#current-comparison", class = "section-rail-link", "比較サマリー"),
     tags$a(href = "#selected-year-comparison", class = "section-rail-link", "選択年度"),
     tags$a(href = "#head-to-head", class = "section-rail-link", "直接対戦"),
@@ -914,6 +1100,50 @@ div(
     tags$a(href = "compare.html", `data-compare-team-link` = "b", class = "section-rail-link", "Team B 詳細")
   )
 )
+```
+
+## 比較ショートカット {#shortcut-deck}
+
+<div class="copy-shell">
+  <p class="section-lead">まず何を比べるべきかを先に提示するために、現在順位、歴代ピーク、対戦史から代表的なカードを並べました。ボタンを押すと、上の表示年度を維持したまま比較対象だけを切り替えます。</p>
+  <p class="record-note">比較候補は現在データから自動生成しているため、今後リーグや大学が増えても同じ入口を拡張できます。</p>
+</div>
+
+```{r compare-shortcuts}
+if (nrow(compare_shortcuts) > 0) {
+  div(
+    class = "compare-shortcut-grid",
+    lapply(seq_len(nrow(compare_shortcuts)), function(i) {
+      row <- compare_shortcuts[i, ]
+
+      tags$article(
+        class = "compare-shortcut-card",
+        div(class = "compare-shortcut-label", row$lens),
+        div(class = "compare-shortcut-meta", row$label),
+        div(class = "compare-shortcut-title", row$title),
+        div(class = "compare-shortcut-note", row$note),
+        div(
+          class = "directory-link-row",
+          tags$button(
+            class = "directory-link compare-shortcut-trigger",
+            type = "button",
+            `data-compare-preset` = "true",
+            `data-compare-preset-a` = row$team1,
+            `data-compare-preset-b` = row$team2,
+            "この比較を表示"
+          ),
+          tags$a(
+            href = compare_url(row$team1, row$team2),
+            class = "directory-link compare-secondary-link",
+            "URLで開く"
+          )
+        )
+      )
+    })
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる比較ショートカットがありません。"))
+}
 ```
 
 ## 比較サマリー {#current-comparison}

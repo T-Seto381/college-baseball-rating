@@ -854,6 +854,11 @@ main.content {
   font-weight: 700;
 }
 
+.compare-shortcut-trigger {
+  font: inherit;
+  cursor: pointer;
+}
+
 .history-snapshot-card {
   min-height: 128px;
   padding: 16px 18px;
@@ -2327,6 +2332,11 @@ h3 {
 .compare-yearbook-row.is-active th {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(220, 235, 228, 0.98));
+}
+
+.compare-yearbook-row:focus-visible td,
+.compare-yearbook-row:focus-visible th {
+  background: rgba(236, 243, 238, 0.75);
 }
 
 .back-links {
