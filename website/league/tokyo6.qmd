@@ -403,6 +403,92 @@ upset_focus <- league_upset_wins |>
     )
   )
 
+all_spring_focus <- season_leaders |>
+  filter(season == "春")
+
+if (nrow(all_spring_focus) > 0) {
+  all_spring_focus <- all_spring_focus |>
+    filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), TeamName) |>
+    summarise(
+      spring_title = paste(TeamName, collapse = " / "),
+      spring_note = paste0(
+        paste(season_label, collapse = " / "),
+        "  リーグ内終点レート ",
+        paste(sprintf("%.1f", display_rating), collapse = " / ")
+      )
+    )
+} else {
+  all_spring_focus <- tibble(
+    spring_title = "データなし",
+    spring_note = "該当シーズンなし"
+  )
+}
+
+all_fall_focus <- season_leaders |>
+  filter(season == "秋")
+
+if (nrow(all_fall_focus) > 0) {
+  all_fall_focus <- all_fall_focus |>
+    filter(display_rating == max(display_rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), TeamName) |>
+    summarise(
+      fall_title = paste(TeamName, collapse = " / "),
+      fall_note = paste0(
+        paste(season_label, collapse = " / "),
+        "  リーグ内終点レート ",
+        paste(sprintf("%.1f", display_rating), collapse = " / ")
+      )
+    )
+} else {
+  all_fall_focus <- tibble(
+    fall_title = "データなし",
+    fall_note = "該当シーズンなし"
+  )
+}
+
+all_peak_focus <- team_year_peaks
+
+if (nrow(all_peak_focus) > 0) {
+  all_peak_focus <- all_peak_focus |>
+    filter(peak_rating == max(peak_rating, na.rm = TRUE)) |>
+    arrange(desc(peak_date), TeamName) |>
+    summarise(
+      peak_title = paste(TeamName, collapse = " / "),
+      peak_note = paste0(
+        paste(sprintf("%.1f", peak_rating), collapse = " / "),
+        " / ",
+        paste(format(peak_date, "%Y/%m/%d"), collapse = " / ")
+      )
+    )
+} else {
+  all_peak_focus <- tibble(
+    peak_title = "データなし",
+    peak_note = "該当データなし"
+  )
+}
+
+all_upset_focus <- league_upset_wins |> slice_head(n = 1)
+
+if (nrow(all_upset_focus) > 0) {
+  all_upset_focus <- all_upset_focus |>
+    transmute(
+      upset_title = winner_name,
+      upset_note = paste0(
+        format(gamedate, "%Y/%m/%d"),
+        "  対 ",
+        opponent_name,
+        "  勝率 ",
+        sprintf("%.1f%%", 100 * league_win_prob)
+      )
+    )
+} else {
+  all_upset_focus <- tibble(
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
 year_focus <- tibble(yr = as.character(available_yrs)) |>
   left_join(season_focus, by = "yr") |>
   left_join(peak_focus, by = "yr") |>
@@ -416,6 +502,19 @@ year_focus <- tibble(yr = as.character(available_yrs)) |>
     peak_note = coalesce(peak_note, "該当データなし"),
     upset_title = coalesce(upset_title, "記録なし"),
     upset_note = coalesce(upset_note, "該当試合なし")
+  ) |>
+  bind_rows(
+    tibble(
+      yr = "all",
+      spring_title = all_spring_focus$spring_title[[1]],
+      spring_note = all_spring_focus$spring_note[[1]],
+      fall_title = all_fall_focus$fall_title[[1]],
+      fall_note = all_fall_focus$fall_note[[1]],
+      peak_title = all_peak_focus$peak_title[[1]],
+      peak_note = all_peak_focus$peak_note[[1]],
+      upset_title = all_upset_focus$upset_title[[1]],
+      upset_note = all_upset_focus$upset_note[[1]]
+    )
   )
 
 year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
@@ -531,7 +630,7 @@ hero_script <- glue::glue(
         yearFocus[0];
       if (!summary) return;
 
-      bindText('year-label', summary.yr + '年');
+      bindText('year-label', summary.yr === 'all' ? '全期間' : summary.yr + '年');
       bindText('spring-title', summary.spring_title);
       bindText('spring-note', summary.spring_note);
       bindText('fall-title', summary.fall_title);
@@ -554,12 +653,13 @@ hero_script <- glue::glue(
       syncYear(year);
       renderFocus(year);
       syncYearCards(year);
+      const filterValue = year === 'all' ? void 0 : year;
 
       function updateTables() {{
         if (window.Reactable) {{
           tableFilters.forEach(function(target) {{
             if (document.getElementById(target[0])) {{
-              Reactable.setFilter(target[0], target[1], year);
+              Reactable.setFilter(target[0], target[1], filterValue);
             }}
           }});
         }} else {{
@@ -580,9 +680,16 @@ hero_script <- glue::glue(
           setTimeout(updatePlot, 200);
           return;
         }}
-        Plotly.relayout(plot, {{
-          'xaxis.range': [year + '-01-01', year + '-12-31']
-        }});
+        if (year === 'all') {{
+          Plotly.relayout(plot, {{
+            'xaxis.autorange': true
+          }});
+        }} else {{
+          Plotly.relayout(plot, {{
+            'xaxis.autorange': false,
+            'xaxis.range': [year + '-01-01', year + '-12-31']
+          }});
+        }}
       }}
 
       updateTables();
@@ -687,7 +794,12 @@ tagList(
         tags$select(
           class = "year-select",
           `data-global-year` = "site",
-          lapply(available_yrs, function(yr) tags$option(value = yr, as.character(yr)))
+          lapply(c("all", as.character(available_yrs)), function(yr) {
+            tags$option(
+              value = yr,
+              if (yr == "all") "全期間" else as.character(yr)
+            )
+          })
         )
       )
     ),

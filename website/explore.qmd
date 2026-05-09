@@ -371,7 +371,12 @@ tagList(
         tags$select(
           class = "year-select",
           `data-global-year` = "site",
-          lapply(available_years, function(yr) tags$option(value = yr, as.character(yr)))
+          lapply(c("all", as.character(available_years)), function(yr) {
+            tags$option(
+              value = yr,
+              if (yr == "all") "全期間" else as.character(yr)
+            )
+          })
         )
       )
     ),

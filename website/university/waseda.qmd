@@ -329,6 +329,98 @@ year_focus <- year_summary |>
     )
   )
 
+all_spring_focus <- season_end |>
+  filter(season == "春")
+
+if (nrow(all_spring_focus) > 0) {
+  all_spring_focus <- all_spring_focus |>
+    filter(rating == max(rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), label) |>
+    summarise(
+      spring_title = paste(sprintf("%.1f", rating), collapse = " / "),
+      spring_note = paste0(
+        paste(label, collapse = " / "),
+        "  #",
+        paste(season_rank, collapse = " / ")
+      )
+    )
+} else {
+  all_spring_focus <- tibble(
+    spring_title = "記録なし",
+    spring_note = "春季データなし"
+  )
+}
+
+all_fall_focus <- season_end |>
+  filter(season == "秋")
+
+if (nrow(all_fall_focus) > 0) {
+  all_fall_focus <- all_fall_focus |>
+    filter(rating == max(rating, na.rm = TRUE)) |>
+    arrange(desc(end_date), label) |>
+    summarise(
+      fall_title = paste(sprintf("%.1f", rating), collapse = " / "),
+      fall_note = paste0(
+        paste(label, collapse = " / "),
+        "  #",
+        paste(season_rank, collapse = " / ")
+      )
+    )
+} else {
+  all_fall_focus <- tibble(
+    fall_title = "記録なし",
+    fall_note = "秋季データなし"
+  )
+}
+
+all_peak_focus <- if (nrow(team_peak) > 0) {
+  tibble(
+    peak_title = sprintf("%.1f", team_peak$peak_rating[[1]]),
+    peak_note = paste0(format(team_peak$date[[1]], "%Y/%m/%d"), " に到達")
+  )
+} else {
+  tibble(
+    peak_title = "記録なし",
+    peak_note = "該当データなし"
+  )
+}
+
+all_upset_focus <- if (nrow(top_upset_win) > 0) {
+  tibble(
+    upset_title = top_upset_win$name_b[[1]],
+    upset_note = paste0(
+      format(top_upset_win$gamedate[[1]], "%Y/%m/%d"),
+      "  ",
+      top_upset_win$score_a[[1]],
+      "-",
+      top_upset_win$score_b[[1]],
+      "  勝率 ",
+      sprintf("%.1f%%", 100 * top_upset_win$team_win_prob[[1]])
+    )
+  )
+} else {
+  tibble(
+    upset_title = "記録なし",
+    upset_note = "該当試合なし"
+  )
+}
+
+year_focus <- bind_rows(
+  year_focus,
+  tibble(
+    yr = "all",
+    year_label = "全期間",
+    peak_title = all_peak_focus$peak_title[[1]],
+    peak_note = all_peak_focus$peak_note[[1]],
+    spring_title = all_spring_focus$spring_title[[1]],
+    spring_note = all_spring_focus$spring_note[[1]],
+    fall_title = all_fall_focus$fall_title[[1]],
+    fall_note = all_fall_focus$fall_note[[1]],
+    upset_title = all_upset_focus$upset_title[[1]],
+    upset_note = all_upset_focus$upset_note[[1]]
+  )
+)
+
 year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
 
 default_focus <- year_focus |>
@@ -518,11 +610,12 @@ hero_script <- glue::glue(
       syncYear(year);
       renderFocus(year);
       syncYearCards(year);
+      const filterValue = year === 'all' ? void 0 : year;
 
       function updateTables() {{
         if (window.Reactable) {{
           tableFilters.forEach(function(target) {{
-            Reactable.setFilter(target[0], target[1], year);
+            Reactable.setFilter(target[0], target[1], filterValue);
           }});
         }} else {{
           setTimeout(updateTables, 100);
@@ -539,9 +632,16 @@ hero_script <- glue::glue(
           setTimeout(updatePlot, 200);
           return;
         }}
-        Plotly.relayout(plot, {{
-          'xaxis.range': [year + '-01-01', year + '-12-31']
-        }});
+        if (year === 'all') {{
+          Plotly.relayout(plot, {{
+            'xaxis.autorange': true
+          }});
+        }} else {{
+          Plotly.relayout(plot, {{
+            'xaxis.autorange': false,
+            'xaxis.range': [year + '-01-01', year + '-12-31']
+          }});
+        }}
       }}
 
       updateTables();
@@ -689,7 +789,12 @@ tagList(
         tags$select(
           class = "year-select",
           `data-global-year` = "site",
-          lapply(available_yrs, function(yr) tags$option(value = yr, as.character(yr)))
+          lapply(c("all", as.character(available_yrs)), function(yr) {
+            tags$option(
+              value = yr,
+              if (yr == "all") "全期間" else as.character(yr)
+            )
+          })
         )
       )
     ),
