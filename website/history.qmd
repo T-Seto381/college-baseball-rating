@@ -444,6 +444,7 @@ year_focus <- tibble(yr = as.character(available_yrs)) |>
   )
 
 year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
+available_years_json <- jsonlite::toJSON(as.character(available_yrs), auto_unbox = FALSE)
 
 default_focus <- year_focus |>
   filter(yr == default_yr) |>
@@ -487,6 +488,7 @@ hero_script <- glue::glue(
   (function() {{
     const targets = {search_targets_json};
     const yearFocus = {year_focus_json};
+    const availableYears = {available_years_json};
     const defaultYear = '{default_yr}';
     const tableFilters = [
       ['history-leaders-table', 'yr'],
@@ -582,6 +584,50 @@ hero_script <- glue::glue(
       bindText('upset-note', summary.upset_note);
     }}
 
+    function resolveYearAction(action, currentYear) {{
+      if (action === 'latest') {{
+        return availableYears.length ? availableYears[0] : defaultYear;
+      }}
+      if (action === 'all') {{
+        return 'all';
+      }}
+      if (currentYear === 'all') {{
+        return null;
+      }}
+
+      const index = availableYears.indexOf(String(currentYear));
+      if (index === -1) {{
+        return null;
+      }}
+
+      if (action === 'newer') {{
+        return index > 0 ? availableYears[index - 1] : null;
+      }}
+      if (action === 'older') {{
+        return index < availableYears.length - 1 ? availableYears[index + 1] : null;
+      }}
+
+      return null;
+    }}
+
+    function updateYearStepper(year) {{
+      const label = year === 'all' ? '全期間' : year + '年';
+      const note =
+        year === 'all'
+          ? '通年ビューで年次アーカイブと履歴表をまとめて確認'
+          : year + '年の年鑑カードと履歴表へ固定';
+
+      bindText('stepper-label', label);
+      bindText('stepper-note', note);
+
+      document.querySelectorAll('[data-year-step]').forEach(function(button) {{
+        const targetYear = resolveYearAction(button.getAttribute('data-year-step'), year);
+        const isDisabled = !targetYear || targetYear === String(year);
+        button.disabled = isDisabled;
+        button.setAttribute('aria-disabled', isDisabled ? 'true' : 'false');
+      }});
+    }}
+
     function syncYearCards(year) {{
       document.querySelectorAll('[data-year-card]').forEach(function(button) {{
         const active = button.getAttribute('data-year-card') === String(year);
@@ -593,6 +639,7 @@ hero_script <- glue::glue(
     function applyYear(year) {{
       syncYear(year);
       renderFocus(year);
+      updateYearStepper(year);
       syncYearCards(year);
       const filterValue = year === 'all' ? void 0 : year;
 
@@ -659,6 +706,18 @@ hero_script <- glue::glue(
       document.querySelectorAll('[data-year-card]').forEach(function(button) {{
         button.addEventListener('click', function() {{
           applyYear(button.getAttribute('data-year-card'));
+        }});
+      }});
+
+      document.querySelectorAll('[data-year-step]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          const targetYear = resolveYearAction(
+            button.getAttribute('data-year-step'),
+            getSelectedYear()
+          );
+          if (targetYear) {{
+            applyYear(targetYear);
+          }}
         }});
       }});
     }});
@@ -772,6 +831,34 @@ tagList(
             )
           })
         )
+      )
+    ),
+    div(
+      class = "detail-year-stepper",
+      div(
+        class = "detail-year-stepper-head",
+        div(class = "control-label", "Quick Year Jumps"),
+        div(
+          class = "detail-year-stepper-current",
+          `data-history-bind` = "stepper-label",
+          ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+        ),
+        div(
+          class = "detail-year-stepper-note",
+          `data-history-bind` = "stepper-note",
+          ifelse(
+            default_focus$yr[[1]] == "all",
+            "通年ビューで年次アーカイブと履歴表をまとめて確認",
+            paste0(default_focus$yr[[1]], "年の年鑑カードと履歴表へ固定")
+          )
+        )
+      ),
+      div(
+        class = "detail-year-stepper-controls",
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "latest", "最新年"),
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "newer", "新しい年"),
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "older", "古い年"),
+        tags$button(class = "detail-year-button detail-year-button-secondary", type = "button", `data-year-step` = "all", "全期間")
       )
     ),
     div(
