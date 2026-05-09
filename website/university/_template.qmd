@@ -673,17 +673,17 @@ search_targets <- bind_rows(
     transmute(
       label = TeamName,
       search = paste(TeamName, TeamShortName, LeagueName),
-      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+      url = map_chr(TeamShortName, team_url)
     ),
   teams_info |>
     distinct(LeagueName) |>
     transmute(
       label = LeagueName,
       search = LeagueName,
-      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+      url = map_chr(LeagueName, league_url)
     )
 ) |>
-  filter(!is.na(url))
+  filter(url != "#")
 
 search_targets_json <- jsonlite::toJSON(search_targets, dataframe = "rows", auto_unbox = TRUE)
 
