@@ -64,7 +64,7 @@ league_rank_pos <- league_rank_tbl |>
 if (length(league_rank_pos) == 0) league_rank_pos <- NA
 
 total_leagues <- nrow(league_rank_tbl)
-current_year  <- max(year(game_results$gamedate))
+current_year  <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
 
 # 全期間平均・標準偏差（ゲームレート表示用）
 global_mean <- mean(rating_hist$rating)
@@ -124,6 +124,7 @@ if (nrow(rank_hist) > 0) {
     if (nrow(tm_data) == 0) next
     tm_full  <- team_name_map[[tm]]
     tm_color <- team_color_map[[tm]]
+    tm_data  <- tm_data |> mutate(team_label = tm_full)
 
     p <- add_trace(
       p,
@@ -137,7 +138,7 @@ if (nrow(rank_hist) > 0) {
       marker    = list(color = tm_color, size = 5,
                        line = list(color = "#FFFFFF", width = 1.5)),
       text      = ~paste0(
-        tm_full, "<br>",
+        team_label, "<br>",
         format(date, "%Y/%m/%d"), "<br>",
         "レート: ", round(display_rating, 1), "<br>",
         "順位: ", rank, "位"
@@ -148,7 +149,7 @@ if (nrow(rank_hist) > 0) {
 
   p |> layout(
     xaxis  = list(title = "", gridcolor = "#EBEBEB", zeroline = FALSE),
-    yaxis  = list(title = list(text = "レ<br>ー<br>ト"), gridcolor = "#EBEBEB", zeroline = FALSE),
+    yaxis  = list(title = "レート", gridcolor = "#EBEBEB", zeroline = FALSE),
     legend = list(orientation = "h", y = -0.18,
                   font = list(size = 11)),
     margin = list(l = 50, r = 20, t = 20, b = 70),
@@ -268,14 +269,14 @@ reactable(
     score_a = colDef(
       name = "得点", width = 60, align = "center",
       style = function(v, ri) {
-        if (!is.na(v) && v > league_games$score_b[ri + 1])
+        if (!is.na(v) && v > league_games$score_b[ri])
           "font-weight:900; font-size:1rem;" else "color:#AAA;"
       }
     ),
     score_b = colDef(
       name = "失点", width = 60, align = "center",
       style = function(v, ri) {
-        if (!is.na(v) && v > league_games$score_a[ri + 1])
+        if (!is.na(v) && v > league_games$score_a[ri])
           "font-weight:900; font-size:1rem;" else "color:#AAA;"
       }
     ),

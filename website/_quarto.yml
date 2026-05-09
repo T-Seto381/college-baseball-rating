@@ -3,7 +3,7 @@ project:
   output-dir: ../docs
 
 website:
-  title: "大学野球レーティング"
+  title: "BASEBALL UNIV RANKING"
   description: "日本大学硬式野球 Elo/Glicko2 レーティングランキング"
   navbar:
     left:
