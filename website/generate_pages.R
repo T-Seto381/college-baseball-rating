@@ -59,6 +59,14 @@ for (tm in all_teams) {
   out_qmd <- paste0("university/", slug, ".qmd")
   cat(sprintf("  %s (%s) -> %s\n", tm, slug, out_qmd))
 
+  team_full_name <- teams_info |>
+    filter(TeamShortName == tm) |>
+    slice(1) |>
+    pull(TeamName)
+  if (length(team_full_name) == 0 || is.na(team_full_name)) {
+    team_full_name <- tm
+  }
+
   # params$team をチーム名に直接置換（YAML内に日本語を埋め込まない）
   body <- gsub("TEAM <- params\\$team",
                sprintf('TEAM <- "%s"', tm),
@@ -67,6 +75,7 @@ for (tm in all_teams) {
 
   content <- c(
     "---",
+    sprintf('title: "%s"', team_full_name),
     "format:",
     "  html:",
     "    page-layout: full",
@@ -99,6 +108,7 @@ for (lg in all_leagues) {
 
   content <- c(
     "---",
+    sprintf('title: "%s"', lg),
     "format:",
     "  html:",
     "    page-layout: full",

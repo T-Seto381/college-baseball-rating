@@ -1,20 +1,204 @@
 ---
 title: "計算方法"
+format:
+  html:
+    page-layout: full
 ---
 
 ```{r setup}
 library(tidyverse)
 library(reactable)
-library(plotly)
 library(lubridate)
+library(htmltools)
 
 comparison <- read_csv("../logs/model_comparison.csv", show_col_types = FALSE)
+teams_info <- readxl::read_excel("../data_out/teamdata.xlsx")
+game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv", show_col_types = FALSE) |>
+  mutate(gamedate = as.Date(gamedate))
+
+TEAM_SLUG <- c(
+  "東大" = "todai",
+  "明治" = "meiji",
+  "慶應" = "keio",
+  "早稲田" = "waseda",
+  "立教" = "rikkyo",
+  "法政" = "hosei"
+)
+
+LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+
+current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
+available_years <- sort(unique(year(game_results$gamedate[game_results$gamedate <= Sys.Date()])), decreasing = TRUE)
+
+search_targets <- bind_rows(
+  teams_info |>
+    transmute(
+      label = TeamName,
+      search = paste(TeamName, TeamShortName, LeagueName),
+      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+    ),
+  teams_info |>
+    distinct(LeagueName) |>
+    transmute(
+      label = LeagueName,
+      search = LeagueName,
+      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+    )
+) |>
+  filter(!is.na(url))
+
+search_targets_json <- jsonlite::toJSON(search_targets, dataframe = "rows", auto_unbox = TRUE)
+best_model <- comparison |> arrange(log_loss) |> slice(1)
+```
+
+```{r page-hero}
+search_options <- tags$datalist(
+  id = "site-search-options",
+  lapply(search_targets$label, function(lbl) tags$option(value = lbl))
+)
+
+hero_script <- glue::glue(
+  "
+  (function() {{
+    const targets = {search_targets_json};
+    const defaultYear = '{current_year}';
+
+    function normalize(value) {{
+      return String(value || '').replace(/\\s+/g, '').toLowerCase();
+    }}
+
+    function syncYear(value) {{
+      if (!value) return;
+      window.localStorage.setItem('cbr-selected-year', value);
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        if ([].some.call(select.options, function(opt) {{ return opt.value === value; }})) {{
+          select.value = value;
+        }}
+      }});
+    }}
+
+    function goSearch() {{
+      const input = document.querySelector('[data-search-input]');
+      if (!input) return;
+      const key = normalize(input.value);
+      if (!key) return;
+      const match = targets.find(function(target) {{
+        return normalize(target.label) === key || normalize(target.search).indexOf(key) !== -1;
+      }});
+      if (match) {{
+        syncYear(document.querySelector('[data-global-year]')?.value || defaultYear);
+        window.location.href = match.url;
+      }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      syncYear(window.localStorage.getItem('cbr-selected-year') || defaultYear);
+
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        select.addEventListener('change', function(event) {{
+          syncYear(event.target.value);
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-go]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          goSearch();
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-input]').forEach(function(input) {{
+        input.addEventListener('keydown', function(event) {{
+          if (event.key === 'Enter') {{
+            event.preventDefault();
+            goSearch();
+          }}
+        }});
+      }});
+    }});
+  }})();
+  "
+)
+
+tagList(
+  div(
+    class = "page-hero",
+    div(class = "page-kicker", "Methodology"),
+    div(
+      class = "hero-grid",
+      div(
+        h1(class = "hero-title", "計算方法"),
+        p(
+          class = "hero-subtitle",
+          "Elo と Glicko2 を比較し、得失点差も含めて最も予測性能が高かったモデルを採用しています。"
+        ),
+        div(
+          class = "meta-pills",
+          div(class = "meta-pill", paste0("採用モデル ", best_model$model)),
+          div(class = "meta-pill", paste0("Log-loss ", sprintf("%.4f", best_model$log_loss))),
+          div(class = "meta-pill", paste0("正答率 ", scales::percent(best_model$accuracy, accuracy = 0.1)))
+        )
+      ),
+      div(
+        class = "stat-grid",
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "比較モデル数"),
+          div(class = "stat-value", nrow(comparison)),
+          div(class = "stat-note", "Elo / Glicko2 x 得失点考慮あり・なし")
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "対象年度"),
+          div(class = "stat-value", paste0(min(available_years), "-", max(available_years))),
+          div(class = "stat-note", "東京六大学のリーグ戦結果を使用")
+        ),
+        div(
+          class = "stat-card",
+          div(class = "stat-label", "更新係数"),
+          div(class = "stat-value", "K = 50"),
+          div(class = "stat-note", "比較可能性のため全モデルで固定")
+        )
+      )
+    ),
+    div(
+      class = "control-bar",
+      div(
+        class = "control-block",
+        div(class = "control-label", "大学・リーグ検索"),
+        div(
+          class = "search-shell",
+          tags$input(
+            class = "search-input",
+            type = "search",
+            placeholder = "大学名またはリーグ名を入力",
+            list = "site-search-options",
+            `data-search-input` = "site"
+          ),
+          tags$button(class = "control-button", type = "button", `data-search-go` = "site", "移動")
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "表示年度"),
+        tags$select(
+          class = "year-select",
+          `data-global-year` = "site",
+          lapply(available_years, function(yr) tags$option(value = yr, as.character(yr)))
+        )
+      )
+    ),
+    search_options,
+    tags$script(HTML(hero_script))
+  )
+)
 ```
 
 ## 概要
 
-このレーティングシステムは、試合の勝敗（および得失点）をもとに各チームの強さを数値化します。
-チームAが試合Bに勝てば、AのレートはBのレートに基づいた「期待値」分だけ上昇し、Bは対応して下降します。
+::: {.copy-shell}
+このレーティングシステムは、試合の勝敗と得失点差をもとに各大学の強さを数値化します。  
+試合前レートから期待勝率を算出し、実際の結果との差に応じてレートを更新します。
+:::
 
 ## Elo レーティング
 
@@ -30,8 +214,8 @@ $$
 
 | 記号 | 意味 |
 |------|------|
-| $R_i, R_j$ | 試合前のチームiとjのレーティング |
-| $E_i$ | チームiの期待勝率 |
+| $R_i, R_j$ | 試合前のチーム i と j のレーティング |
+| $E_i$ | チーム i の期待勝率 |
 | $K$ | 更新係数（本システムでは **K = 50** 固定） |
 | $S_i$ | 実績値（勝=1, 引=0.5, 負=0） |
 
@@ -39,46 +223,35 @@ $$
 
 ### 得失点調整
 
-得失点差を加味した実績値 $S_i^{\mathrm{adj}}$ を使用する場合:
-
 $$
-S_i^{\mathrm{adj}} = (1-\alpha) \cdot S_i^{\mathrm{bin}} + \alpha \cdot \frac{\tanh(\Delta/c) + 1}{2}
+S_i^{adj} = (1-\alpha) \cdot S_i^{bin} + \alpha \cdot \frac{\tanh(\Delta/c) + 1}{2}
 $$
 
 | パラメータ | 意味 |
 |-----------|------|
-| $\alpha \in [0,1]$ | 得失点差の重み（最適化対象） |
-| $\Delta = \text{得点}_i - \text{得点}_j$ | 得失点差 |
-| $c$ | スケール係数（最適化対象） |
+| $\alpha$ | 得失点差の重み |
+| $\Delta$ | 得点差 |
+| $c$ | 得失点差のスケール係数 |
 
-$\tanh$ 関数を使うことで得失点差の影響が過大にならないよう上限を設けています。
+<div class="note-box">
+得失点差の影響が極端になりすぎないよう、双曲線正接関数で上限を持たせています。
+</div>
 
-## Glicko2 レーティング（改変版）
+## Glicko2 レーティング
 
-Glicko2 は Elo を拡張し、レーティングの「信頼性」(RD: Rating Deviation) とボラティリティ ($\sigma$) を管理します。
-
-### 本システムでの実装
-
-RD は固定せず、試合数・シーズン境界に応じて動的に変化します。
+Glicko2 は Elo を拡張し、レートの不確実性を表す `RD` を持ちます。  
+このサイトではシーズン境界と年度境界で RD を増やし、試合を重ねるごとに RD を減らす形で実装しています。
 
 | パラメータ | 値 | 意味 |
 |-----------|-----|------|
-| $RD_{\mathrm{init}}$ | 150 | 初期値（不確実性が高い） |
-| $RD_{\mathrm{min}}$ | 20 | 下限（十分なデータがある状態） |
-| $RD_{\mathrm{max}}$ | 300 | 上限 |
-| $\mathrm{decay}$ | 0.97/試合 | 試合ごとに RD を縮小（信頼性向上） |
-| $\mathrm{bump}_{\mathrm{season}}$ | +20 | 春↔秋シーズン境界での不確実性増加 |
-| $\mathrm{bump}_{\mathrm{year}}$ | +60 | 年度境界（秋→翌春）での不確実性増加 |
+| $RD_{init}$ | 150 | 初期の不確実性 |
+| $RD_{min}$ | 20 | 下限 |
+| $RD_{max}$ | 300 | 上限 |
+| decay | 0.97/試合 | 試合ごとに RD を縮小 |
+| bump season | +20 | 春秋境界での増加量 |
+| bump year | +60 | 年度境界での増加量 |
 
-各試合後の RD 更新：
-
-$$
-RD' = \max\bigl(RD_{\mathrm{min}},\; \min(RD_{\mathrm{max}},\; RD \times \mathrm{decay})\bigr)
-$$
-
-シーズン・年度境界では上記の bump を加算してから上限でクリップします。
-
-期待勝率の補正：
+### 期待勝率補正
 
 $$
 g(\phi) = \frac{1}{\sqrt{1 + 3\phi^2/\pi^2}}, \quad \phi = \frac{RD}{173.72}
@@ -88,79 +261,79 @@ $$
 E_i = \frac{1}{1 + 10^{-g(\phi)(R_i - R_j)/400}}
 $$
 
-RD が小さいほど $g(\phi)$ が 1 に近づき Elo と同等の挙動になります。RD が大きい（不確実性が高い）チームとの対戦では期待勝率が 0.5 寄りに補正されます。
-
 ## モデル比較
-
-4モデルをウォークフォワード交差検証で比較しました。
-
-**検証方法:**
-- 学習期間: 2000年〜2019年の試合で逐次更新
-- 評価期間: 2020年〜最新（`r max(read_csv("../data_out/big6_results_2000_2026.csv", show_col_types=FALSE)$gamedate)` まで）
-- 評価は各試合直前のレーティングを使った予測に基づく（リーク無し）
-
-### 評価指標
-
-| 指標 | 定義 | 良い値 |
-|------|------|--------|
-| **Log-loss** | $-\mathrm{mean}(y\log p + (1-y)\log(1-p))$ | 小さいほど良い |
-| **Accuracy** | 勝敗予測の正答率 | 大きいほど良い |
-| **Brier** | $\mathrm{mean}((y-p)^2)$ | 小さいほど良い |
-
-### 結果
 
 ```{r model-comparison-table}
 comp_tbl <- comparison |>
   mutate(
     log_loss = round(log_loss, 4),
     accuracy = scales::percent(accuracy, accuracy = 0.1),
-    brier    = round(brier, 4),
-    alpha         = round(alpha, 3),
-    c_scale       = round(c_scale, 2),
-    shrink_year   = round(shrink_year, 4),
+    brier = round(brier, 4),
+    alpha = round(alpha, 3),
+    c_scale = round(c_scale, 2),
+    shrink_year = round(shrink_year, 4),
     shrink_season = round(shrink_season, 4)
   ) |>
   arrange(log_loss) |>
   rename(
-    モデル = model, ログ損失 = log_loss,
-    正答率 = accuracy, ブライアスコア = brier
+    モデル = model,
+    ログ損失 = log_loss,
+    正答率 = accuracy,
+    ブライアスコア = brier,
+    得失点重み = alpha,
+    スコア係数 = c_scale
   )
 
-reactable(
-  comp_tbl,
-  striped = TRUE, highlight = TRUE,
-  defaultSorted = list(ログ損失 = "asc"),
-  columns = list(
-    モデル     = colDef(minWidth = 160),
-    ログ損失   = colDef(width = 100, align = "right"),
-    正答率     = colDef(width = 90,  align = "right"),
-    ブライアスコア = colDef(width = 120, align = "right")
+div(
+  class = "table-shell",
+  reactable(
+    comp_tbl,
+    pagination = FALSE,
+    striped = FALSE,
+    highlight = TRUE,
+    columns = list(
+      モデル = colDef(minWidth = 170),
+      ログ損失 = colDef(width = 100, align = "right"),
+      正答率 = colDef(width = 90, align = "right"),
+      ブライアスコア = colDef(width = 120, align = "right")
+    )
   )
 )
 ```
 
-```{r adopted-model}
-best <- comparison |> arrange(log_loss) |> slice(1)
-```
+ログ損失が最小だった **`r best_model$model`** を採用しています。
 
-ログ損失が最小であった **`r best$model`** を採用しています。
+## レート表示スケール
+
+<div class="formula-box">
+display_rating = 50 + 10 × (rating - mean(rating)) / sd(rating)
+</div>
+
+表示上のレートは偏差値スケールで、平均 50・標準偏差 10 に揃えています。
 
 ## データソース
 
 | データ | 出典 | 期間 |
 |--------|------|------|
-| 東京六大学野球 試合結果 | [東京六大学野球連盟公式](https://www.big6.gr.jp) | 2000年〜現在 |
+| 東京六大学野球 試合結果 | 東京六大学野球連盟公式 | 2000年〜現在 |
 
 ## コード・データ公開
 
-計算コード・元データはすべて GitHub で公開しています。
+::: {.copy-shell}
+- GitHub Repository: `T-Seto381/college-baseball-rating`
+- レーティング計算コード、元データ、サイト生成コードを同一リポジトリで公開
+- 現在の公開サイトは東京六大学を対象に運用
+:::
 
-- **Repository:** [T-Seto381/college-baseball-rating](https://github.com/T-Seto381/college-baseball-rating)
-- **License:** MIT
+## 制限事項
 
-## 注意事項・制限
+::: {.copy-shell}
+- 異なるリーグ間の比較は、全国大会の対戦数が少ないため現時点では未整備です。
+- 引き分けは 0.5 勝として処理しています。
+- 中止試合は計算対象から除外しています。
+- 将来的には全国連盟データの統合を前提にリーグ横断ランキングへ拡張します。
+:::
 
-- 異なるリーグ間の比較は、全国大会（選手権・神宮）でのみ交差するため初期段階では精度が低い
-- 引き分けは 0.5 勝として扱う
-- 中止試合はデータから除外されている
-- 年間 20 試合程度と試合数が少ないため、レートの収束に時間がかかる場合がある
+<div class="back-links">
+  <a href="index.html" class="back-link">&#8592; ランキングに戻る</a>
+</div>

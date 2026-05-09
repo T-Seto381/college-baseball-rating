@@ -2,9 +2,11 @@ project:
   type: website
   output-dir: ../docs
 
+lang: ja
+
 website:
-  title: "BASEBALL UNIV RANKING"
-  description: "日本大学硬式野球 Elo/Glicko2 レーティングランキング"
+  title: "大学野球レーティング"
+  description: "東京六大学野球を対象にした大学野球レーティングサイト"
   navbar:
     left:
       - href: index.qmd
@@ -15,13 +17,11 @@ website:
       - icon: github
         href: https://github.com/T-Seto381/college-baseball-rating
         aria-label: GitHub
-  search: true
+  search: false
 
 format:
   html:
-    theme:
-      light: flatly
-      dark: darkly
+    theme: flatly
     css: styles.css
     toc: false
     page-layout: full

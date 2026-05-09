@@ -1,4 +1,5 @@
 ---
+title: "立教大学"
 format:
   html:
     page-layout: full
@@ -14,74 +15,100 @@ library(lubridate)
 TEAM <- "立教"
 
 final_ratings <- read_csv("../../data_out/ratings/final_ratings.csv",
-                           show_col_types = FALSE) |>
+  show_col_types = FALSE
+) |>
   mutate(date = as.Date(date))
-rating_hist   <- read_csv("../../data_out/ratings/rating_history.csv",
-                           show_col_types = FALSE) |>
+
+rating_hist <- read_csv("../../data_out/ratings/rating_history.csv",
+  show_col_types = FALSE
+) |>
   mutate(date = as.Date(date))
-game_results  <- read_csv("../../data_out/ratings/game_results_with_ratings.csv",
-                           show_col_types = FALSE) |>
+
+game_results <- read_csv("../../data_out/ratings/game_results_with_ratings.csv",
+  show_col_types = FALSE
+) |>
   mutate(gamedate = as.Date(gamedate))
-teams_info    <- readxl::read_excel("../../data_out/teamdata.xlsx") |>
+
+teams_info <- readxl::read_excel("../../data_out/teamdata.xlsx") |>
   mutate(
     c1 = paste0("#", ColorCode1),
     c2 = paste0("#", if_else(is.na(ColorCode2), ColorCode1, ColorCode2)),
-    c3 = paste0("#", if_else(is.na(ColorCode3),
-                             if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
-                             ColorCode3))
+    c3 = paste0(
+      "#",
+      if_else(
+        is.na(ColorCode3),
+        if_else(is.na(ColorCode2), ColorCode1, ColorCode2),
+        ColorCode3
+      )
+    )
   )
 
-# このチームの情報
-team_info      <- teams_info |> filter(TeamShortName == TEAM) |> slice(1)
-team_full_name <- if (nrow(team_info) > 0) team_info$TeamName   else TEAM
-league_name    <- if (nrow(team_info) > 0) team_info$LeagueName else "不明"
-c1 <- if (nrow(team_info) > 0) team_info$c1 else "#111111"
-
-# レートと順位
-all_ranked <- final_ratings |>
-  arrange(rank)
-team_row       <- all_ranked |> filter(team == TEAM)
-current_rating <- if (nrow(team_row) > 0) team_row$display_rating[1] else NA
-current_rank   <- if (nrow(team_row) > 0) team_row$rank[1] else NA
-total_teams    <- nrow(all_ranked)
-
-current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
-
 TEAM_SLUG <- c(
-  "東大"   = "todai",  "明治" = "meiji", "慶應"   = "keio",
-  "早稲田" = "waseda", "立教" = "rikkyo", "法政"  = "hosei"
+  "東大" = "todai",
+  "明治" = "meiji",
+  "慶應" = "keio",
+  "早稲田" = "waseda",
+  "立教" = "rikkyo",
+  "法政" = "hosei"
 )
+
 LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
 
-# 全期間平均・標準偏差（ゲームレート表示用）
-global_mean <- mean(rating_hist$rating)
-global_sd   <- sd(rating_hist$rating)
-to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
+team_url <- function(team, prefix = "../") {
+  slug <- TEAM_SLUG[[team]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "university/", slug, ".html")
+}
 
-# デフォルト表示年度（未来の試合を除いた最新年）
+league_url <- function(league, prefix = "../") {
+  slug <- LEAGUE_SLUG[[league]]
+  if (is.null(slug) || is.na(slug)) {
+    return("#")
+  }
+  paste0(prefix, "league/", slug, ".html")
+}
+
+team_info <- teams_info |> filter(TeamShortName == TEAM) |> slice(1)
+team_full_name <- if (nrow(team_info) > 0) team_info$TeamName else TEAM
+league_name <- if (nrow(team_info) > 0) team_info$LeagueName else "不明"
+c1 <- if (nrow(team_info) > 0) team_info$c1 else "#17324A"
+
+all_ranked <- final_ratings |> arrange(rank)
+team_row <- all_ranked |> filter(team == TEAM)
+current_rating <- if (nrow(team_row) > 0) team_row$display_rating[[1]] else NA_real_
+current_rank <- if (nrow(team_row) > 0) team_row$rank[[1]] else NA_integer_
+total_teams <- nrow(all_ranked)
+
+current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
 available_yrs <- sort(unique(year(
   game_results$gamedate[
     (game_results$team1 == TEAM | game_results$team2 == TEAM) &
-    game_results$gamedate <= Sys.Date()
+      game_results$gamedate <= Sys.Date()
   ]
 )), decreasing = TRUE)
-default_yr <- if (length(available_yrs) > 0) as.character(available_yrs[1]) else as.character(current_year)
+default_yr <- if (length(available_yrs) > 0) as.character(available_yrs[[1]]) else as.character(current_year)
 
-# 過去統計（2001年以降: 2000年は全チーム1500スタートのため除外）
-team_hist_all <- rating_hist |> filter(team == TEAM, year(date) >= 2001) |> arrange(date)
-stats_max <- if (nrow(team_hist_all) > 0) round(max(team_hist_all$display_rating), 1) else NA
-stats_min <- if (nrow(team_hist_all) > 0) round(min(team_hist_all$display_rating), 1) else NA
-stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_rating), 1) else NA
+global_mean <- mean(rating_hist$rating)
+global_sd <- sd(rating_hist$rating)
+to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
 
-# シーズン背景色（春=薄緑、秋=薄赤）
+team_hist_all <- rating_hist |>
+  filter(team == TEAM, year(date) >= 2001) |>
+  arrange(date)
+
+stats_max <- if (nrow(team_hist_all) > 0) round(max(team_hist_all$display_rating), 1) else NA_real_
+stats_min <- if (nrow(team_hist_all) > 0) round(min(team_hist_all$display_rating), 1) else NA_real_
+stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_rating), 1) else NA_real_
+
 season_bg_df <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   select(gamedate, season) |>
   group_by(yr_val = year(gamedate), season) |>
   summarise(bg_start = min(gamedate), bg_end = max(gamedate), .groups = "drop") |>
-  mutate(bg_fill = if_else(season == "春", "rgba(0,160,80,0.07)", "rgba(200,0,50,0.07)"))
+  mutate(bg_fill = if_else(season == "春", "rgba(31,93,77,0.07)", "rgba(191,29,53,0.07)"))
 
-# シーズン終了時レート（map_dbl で確実にルックアップ）
 season_end <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   mutate(yr_val = year(gamedate)) |>
@@ -89,56 +116,281 @@ season_end <- game_results |>
   summarise(end_date = max(gamedate), .groups = "drop") |>
   filter(end_date <= Sys.Date()) |>
   mutate(display_rating = map_dbl(end_date, function(d) {
-    r <- rating_hist |> filter(team == TEAM, date <= d) |> slice_tail(n = 1)
-    if (nrow(r) == 0) NA_real_ else r$display_rating
+    snap <- rating_hist |> filter(team == TEAM, date <= d) |> slice_tail(n = 1)
+    if (nrow(snap) == 0) {
+      return(NA_real_)
+    }
+    snap$display_rating[[1]]
   })) |>
   filter(!is.na(display_rating)) |>
   arrange(desc(yr_val), desc(season == "秋")) |>
   mutate(label = paste0(yr_val, " ", season), rating = round(display_rating, 1)) |>
   select(label, rating)
+
+team_games <- game_results |>
+  filter(team1 == TEAM | team2 == TEAM) |>
+  mutate(
+    yr = as.character(year(gamedate)),
+    is_team1 = team1 == TEAM,
+    team_a = TEAM,
+    team_b = if_else(is_team1, team2, team1),
+    score_a = if_else(is_team1, score1, score2),
+    score_b = if_else(is_team1, score2, score1),
+    rate_a = if_else(is_team1, r1_before, r2_before),
+    rate_b = if_else(is_team1, r2_before, r1_before),
+    delta_own = if_else(is_team1, delta, -delta)
+  ) |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, c1),
+    by = c("team_b" = "TeamShortName")
+  ) |>
+  rename(name_b = TeamName, c1_b = c1) |>
+  mutate(
+    name_a = team_full_name,
+    c1_a = c1,
+    disp_a = to_disp(rate_a),
+    disp_b = to_disp(rate_b),
+    delta_disp = round(10 * delta_own / global_sd, 1),
+    score_dash = ""
+  ) |>
+  arrange(desc(gamedate)) |>
+  select(
+    yr, gamedate, gametype,
+    team_a, name_a, c1_a, disp_a, score_a,
+    score_dash, score_b, team_b, name_b, c1_b, disp_b,
+    delta_disp
+  )
+
+search_targets <- bind_rows(
+  teams_info |>
+    transmute(
+      label = TeamName,
+      search = paste(TeamName, TeamShortName, LeagueName),
+      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+    ),
+  teams_info |>
+    distinct(LeagueName) |>
+    transmute(
+      label = LeagueName,
+      search = LeagueName,
+      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+    )
+) |>
+  filter(!is.na(url))
+
+search_targets_json <- jsonlite::toJSON(search_targets, dataframe = "rows", auto_unbox = TRUE)
+
+matchup_cell <- function(label, team, color, rating) {
+  tags$div(
+    class = "matchup-cell",
+    tags$div(class = "team-color-bar", style = paste0("background:", color)),
+    tags$div(
+      class = "matchup-text",
+      tags$a(
+        href = team_url(team),
+        class = "team-link-inline",
+        style = paste0("color:", color),
+        label
+      ),
+      tags$span(class = "rating-badge", paste0("試合前 ", sprintf("%.1f", rating)))
+    )
+  )
+}
+
+score_cell <- function(score, opp_score) {
+  cls <- if (!is.na(score) && !is.na(opp_score) && score > opp_score) {
+    "score-cell score-winner"
+  } else {
+    "score-cell"
+  }
+  tags$span(class = cls, ifelse(is.na(score), "-", score))
+}
 ```
 
 ```{r header}
-#| output: asis
-rank_str   <- if (!is.na(current_rank)) paste0("全国 ", current_rank, " 位 / ", total_teams, " チーム") else "集計中"
-rate_str   <- if (!is.na(current_rating)) as.character(current_rating) else "-"
-league_url <- if (league_name %in% names(LEAGUE_SLUG)) paste0("../league/", LEAGUE_SLUG[[league_name]], ".html") else "#"
-cat(sprintf(
-  '<div style="border-left:8px solid %s;padding-left:18px;margin-bottom:40px;padding-top:28px;padding-bottom:22px;border-bottom:1px solid #E8E8E8;background:linear-gradient(to right,%s20,transparent);">
-  <div style="display:flex;justify-content:space-between;align-items:flex-end;">
-    <div>
-      <div style="font-size:2.1rem;font-weight:900;letter-spacing:-0.04em;line-height:1;color:%s;margin-bottom:7px;">%s</div>
-      <div style="font-size:0.7rem;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.1em;">
-        <a href="%s" style="color:#6B6B6B;text-decoration:none;">%s</a>
-      </div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:0.7rem;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">%s</div>
-      <div style="font-size:2.7rem;font-weight:900;letter-spacing:-0.05em;line-height:1;color:%s;">%s</div>
-      <div style="font-size:0.67rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-top:3px;">レート</div>
-    </div>
-  </div>
-</div>',
-  c1, c1, c1, team_full_name,
-  league_url, league_name,
-  rank_str, c1, rate_str
-))
-```
+search_options <- tags$datalist(
+  id = "site-search-options",
+  lapply(search_targets$label, function(lbl) tags$option(value = lbl))
+)
 
-```{r stats-row}
-#| output: asis
-if (!is.na(stats_max)) {
-  cat(sprintf(
-    '<div style="display:flex;gap:28px;padding:12px 0 28px;border-bottom:1px solid #E8E8E8;margin-bottom:0;">
-  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">最高レート</div>
-  <div style="font-size:1.2rem;font-weight:900;color:%s;">%s</div></div>
-  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">最低レート</div>
-  <div style="font-size:1.2rem;font-weight:900;">%s</div></div>
-  <div><div style="font-size:0.62rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">平均レート</div>
-  <div style="font-size:1.2rem;font-weight:900;">%s</div></div>
-</div>',
-    c1, stats_max, stats_min, stats_avg))
+hero_script <- glue::glue(
+  "
+  (function() {{
+    const targets = {search_targets_json};
+    const defaultYear = '{default_yr}';
+    const plotSelector = '#team-rating-chart .plotly, #team-rating-chart .js-plotly-plot';
+
+    function normalize(value) {{
+      return String(value || '').replace(/\\s+/g, '').toLowerCase();
+    }}
+
+    function syncYear(value) {{
+      if (!value) return;
+      window.localStorage.setItem('cbr-selected-year', value);
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        if ([].some.call(select.options, function(opt) {{ return opt.value === value; }})) {{
+          select.value = value;
+        }}
+      }});
+    }}
+
+    function applyYear(year) {{
+      syncYear(year);
+
+      function updateTable() {{
+        if (window.Reactable) {{
+          Reactable.setFilter('team-games-table', 'yr', year);
+        }} else {{
+          setTimeout(updateTable, 100);
+        }}
+      }}
+
+      function updatePlot() {{
+        if (!window.Plotly) {{
+          setTimeout(updatePlot, 200);
+          return;
+        }}
+        const plot = document.querySelector(plotSelector);
+        if (!plot) {{
+          setTimeout(updatePlot, 200);
+          return;
+        }}
+        Plotly.relayout(plot, {{
+          'xaxis.range': [year + '-01-01', year + '-12-31']
+        }});
+      }}
+
+      updateTable();
+      updatePlot();
+    }}
+
+    function goSearch() {{
+      const input = document.querySelector('[data-search-input]');
+      if (!input) return;
+      const key = normalize(input.value);
+      if (!key) return;
+      const match = targets.find(function(target) {{
+        return normalize(target.label) === key || normalize(target.search).indexOf(key) !== -1;
+      }});
+      if (match) {{
+        syncYear(document.querySelector('[data-global-year]')?.value || defaultYear);
+        window.location.href = '../' + match.url;
+      }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      const year = window.localStorage.getItem('cbr-selected-year') || defaultYear;
+      syncYear(year);
+      applyYear(year);
+
+      document.querySelectorAll('[data-global-year]').forEach(function(select) {{
+        select.addEventListener('change', function(event) {{
+          applyYear(event.target.value);
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-go]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          goSearch();
+        }});
+      }});
+
+      document.querySelectorAll('[data-search-input]').forEach(function(input) {{
+        input.addEventListener('keydown', function(event) {{
+          if (event.key === 'Enter') {{
+            event.preventDefault();
+            goSearch();
+          }}
+        }});
+      }});
+    }});
+  }})();
+  "
+)
+
+rank_str <- if (!is.na(current_rank)) {
+  paste0("全国 ", current_rank, " 位 / ", total_teams, " チーム")
+} else {
+  "集計中"
 }
+
+latest_season_value <- if (nrow(season_end) > 0) season_end$rating[[1]] else NA_real_
+latest_season_label <- if (nrow(season_end) > 0) season_end$label[[1]] else "データなし"
+
+tagList(
+  div(
+    class = "detail-panel",
+    div(
+      class = "detail-toolbar",
+      div(
+        class = "control-block",
+        div(class = "control-label", "大学・リーグ検索"),
+        div(
+          class = "search-shell",
+          tags$input(
+            class = "search-input",
+            type = "search",
+            placeholder = "大学名またはリーグ名を入力",
+            list = "site-search-options",
+            `data-search-input` = "site"
+          ),
+          tags$button(class = "control-button", type = "button", `data-search-go` = "site", "移動")
+        )
+      ),
+      div(
+        class = "control-block",
+        div(class = "control-label", "表示年度"),
+        tags$select(
+          class = "year-select",
+          `data-global-year` = "site",
+          lapply(available_yrs, function(yr) tags$option(value = yr, as.character(yr)))
+        )
+      )
+    ),
+    div(
+      class = "detail-header",
+      div(
+        div(class = "detail-eyebrow", "University"),
+        h1(class = "detail-title", style = paste0("color:", c1), team_full_name),
+        p(
+          class = "detail-subtitle",
+          tags$a(href = league_url(league_name), class = "detail-link", league_name)
+        )
+      ),
+      div(
+        class = "detail-value-panel",
+        div(class = "detail-eyebrow", rank_str),
+        div(class = "detail-value", style = paste0("color:", c1), ifelse(is.na(current_rating), "-", sprintf("%.1f", current_rating))),
+        div(class = "detail-subtitle", "最新レーティング")
+      )
+    ),
+    div(
+      class = "summary-strip",
+      div(
+        class = "summary-item",
+        div(class = "summary-label", "最高レート"),
+        div(class = "summary-value", ifelse(is.na(stats_max), "-", sprintf("%.1f", stats_max)))
+      ),
+      div(
+        class = "summary-item",
+        div(class = "summary-label", "最低レート"),
+        div(class = "summary-value", ifelse(is.na(stats_min), "-", sprintf("%.1f", stats_min)))
+      ),
+      div(
+        class = "summary-item",
+        div(class = "summary-label", "平均レート"),
+        div(class = "summary-value", ifelse(is.na(stats_avg), "-", sprintf("%.1f", stats_avg)))
+      ),
+      div(
+        class = "summary-item",
+        div(class = "summary-label", latest_season_label),
+        div(class = "summary-value", ifelse(is.na(latest_season_value), "-", sprintf("%.1f", latest_season_value)))
+      )
+    ),
+    search_options,
+    tags$script(HTML(hero_script))
+  )
+)
 ```
 
 ## レーティング推移
@@ -149,235 +401,194 @@ team_hist <- rating_hist |>
   arrange(date)
 
 if (nrow(team_hist) > 0) {
-  # 45日超のギャップを非表示にしてシーズン境界を示す
   game_dates <- sort(unique(team_hist$date))
   if (length(game_dates) > 1) {
-    gap_df <- data.frame(d_prev = head(game_dates, -1),
-                         d_next = tail(game_dates, -1)) |>
+    gap_df <- tibble(d_prev = head(game_dates, -1), d_next = tail(game_dates, -1)) |>
       filter(as.numeric(d_next - d_prev) > 45)
-    rb <- if (nrow(gap_df) > 0)
-      lapply(seq_len(nrow(gap_df)), function(i)
-        list(bounds = list(as.character(gap_df$d_prev[i] + 1),
-                           as.character(gap_df$d_next[i])))) else list()
-  } else { rb <- list() }
-
-  season_shapes <- lapply(seq_len(nrow(season_bg_df)), function(i)
-    list(type = "rect", xref = "x", yref = "paper",
-         x0 = as.character(season_bg_df$bg_start[i]),
-         x1 = as.character(season_bg_df$bg_end[i]),
-         y0 = 0, y1 = 1,
-         fillcolor = season_bg_df$bg_fill[i],
-         line = list(width = 0),
-         layer = "below"))
-
-  plot_ly(
-    data      = team_hist,
-    x         = ~date,
-    y         = ~display_rating,
-    type      = "scatter",
-    mode      = "lines+markers",
-    name      = team_full_name,
-    line      = list(color = c1, width = 2.5),
-    marker    = list(color = c1, size = 6),
-    text      = ~paste0(format(date, "%Y/%m/%d"), "<br>",
-                        "レート: ", round(display_rating, 1)),
-    hoverinfo = "text"
-  ) |> layout(
-    xaxis = list(
-      title = "",
-      gridcolor = "#EBEBEB",
-      zeroline  = FALSE,
-      rangebreaks = rb,
-      tickangle = -45,
-      tickformat = "%Y/%m",
-      nticks = 12,
-      rangeselector = list(
-        buttons = list(
-          list(count = 1, label = "今年", step = "year", stepmode = "todate"),
-          list(count = 5, label = "5年", step = "year", stepmode = "backward"),
-          list(step = "all", label = "全期間")
-        )
-      ),
-      rangeslider = list(visible = FALSE)
-    ),
-    yaxis  = list(title = "レート", gridcolor = "#EBEBEB", zeroline = FALSE),
-    shapes = season_shapes,
-    margin = list(l = 60, r = 20, t = 20, b = 80),
-    paper_bgcolor = "white",
-    plot_bgcolor  = "white",
-    font = list(family = "Inter, Helvetica Neue, sans-serif")
-  ) |> htmlwidgets::onRender('
-    function(el) {
-      var skip = false;
-      function updateDtick() {
-        var layout = el.layout;
-        if (!layout || !layout.xaxis || !layout.xaxis.range) return;
-        var r = layout.xaxis.range;
-        var span = Math.abs(new Date(r[1]) - new Date(r[0]));
-        var DAY = 86400000;
-        var dtick, fmt;
-        if (span > 3 * 365 * DAY) { dtick = "M12"; fmt = "%Y";    }
-        else if (span > 90 * DAY) { dtick = "M1";  fmt = "%Y/%m"; }
-        else                      { dtick = DAY;   fmt = "%m/%d"; }
-        skip = true;
-        Plotly.relayout(el, {"xaxis.dtick": dtick, "xaxis.tickformat": fmt});
-      }
-      el.on("plotly_relayout", function(ed) {
-        if (skip) { skip = false; return; }
-        if (ed["xaxis.range[0]"] !== undefined || ed["xaxis.range"] !== undefined) {
-          updateDtick();
-        }
-      });
-      setTimeout(updateDtick, 300);
+    range_breaks <- if (nrow(gap_df) > 0) {
+      lapply(seq_len(nrow(gap_df)), function(i) {
+        list(bounds = list(as.character(gap_df$d_prev[[i]] + 1), as.character(gap_df$d_next[[i]])))
+      })
+    } else {
+      list()
     }
-  ')
+  } else {
+    range_breaks <- list()
+  }
+
+  season_shapes <- lapply(seq_len(nrow(season_bg_df)), function(i) {
+    list(
+      type = "rect",
+      xref = "x",
+      yref = "paper",
+      x0 = as.character(season_bg_df$bg_start[[i]]),
+      x1 = as.character(season_bg_df$bg_end[[i]]),
+      y0 = 0,
+      y1 = 1,
+      fillcolor = season_bg_df$bg_fill[[i]],
+      line = list(width = 0),
+      layer = "below"
+    )
+  })
+
+  plot_widget <- plot_ly(
+    data = team_hist,
+    x = ~date,
+    y = ~display_rating,
+    type = "scatter",
+    mode = "lines+markers",
+    name = team_full_name,
+    line = list(color = c1, width = 3),
+    marker = list(color = c1, size = 6),
+    text = ~paste0(format(date, "%Y/%m/%d"), "<br>レート: ", round(display_rating, 1)),
+    hoverinfo = "text"
+  ) |>
+    layout(
+      xaxis = list(
+        title = "",
+        gridcolor = "#D6DFD8",
+        zeroline = FALSE,
+        rangebreaks = range_breaks,
+        tickformat = "%Y/%m",
+        nticks = 12
+      ),
+      yaxis = list(title = "レート", gridcolor = "#D6DFD8", zeroline = FALSE),
+      shapes = season_shapes,
+      margin = list(l = 60, r = 20, t = 20, b = 70),
+      paper_bgcolor = "white",
+      plot_bgcolor = "white",
+      font = list(family = "Segoe UI Variable Display, Segoe UI, sans-serif")
+    )
+
+  div(
+    class = "chart-shell",
+    div(id = "team-rating-chart", plot_widget)
+  )
 } else {
-  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">試合データがありません。</p>')
+  div(class = "copy-shell", tags$p("表示できる推移データがありません。"))
 }
 ```
 
-## 試合結果
+## 試合一覧
 
 ```{r games-table}
-team_games <- game_results |>
-  filter(team1 == TEAM | team2 == TEAM) |>
-  mutate(
-    is_team1  = (team1 == TEAM),
-    opp       = if_else(is_team1, team2, team1),
-    score_a   = if_else(is_team1, score1, score2),
-    score_b   = if_else(is_team1, score2, score1),
-    rate_a    = if_else(is_team1, r1_before, r2_before),
-    rate_b    = if_else(is_team1, r2_before, r1_before),
-    delta_own = if_else(is_team1, delta, -delta),
-    result    = case_when(score_a > score_b ~ "W",
-                          score_a < score_b ~ "L",
-                          TRUE              ~ "D"),
-    yr        = as.character(year(gamedate))
-  ) |>
-  left_join(teams_info |> select(TeamShortName, TeamName, c1),
-            by = c("opp" = "TeamShortName")) |>
-  rename(opp_full = TeamName, opp_c1 = c1) |>
-  mutate(
-    disp_a     = to_disp(rate_a),
-    disp_b     = to_disp(rate_b),
-    delta_disp = round(10 * delta_own / global_sd, 1)
-  ) |>
-  arrange(desc(gamedate)) |>
-  select(yr, gamedate, gametype, result, disp_a, score_a, score_b,
-         opp_full, opp_c1, disp_b, opp, delta_disp)
-
-tagList(
+div(
+  class = "table-shell",
   reactable(
     team_games,
-    filterable      = TRUE,
+    filterable = TRUE,
     defaultPageSize = 15,
     showPageSizeOptions = TRUE,
-    pageSizeOptions     = c(15, 50, 200),
+    pageSizeOptions = c(15, 50, 200),
     highlight = TRUE,
-  columns = list(
-    yr = colDef(
-      name  = "年度",
-      width = 72,
-      align = "center",
-      filterMethod = JS("(rows, columnId, filterValue) => {
-        if (!filterValue) return rows;
-        return rows.filter(row => String(row.values[columnId]) === filterValue);
-      }"),
-      filterInput = function(values, name) {
-        yrs <- sort(unique(values), decreasing = TRUE)
-        tags$select(
-          style    = "width:100%; font-size:0.8rem;",
-          onchange = sprintf(
-            "Reactable.setFilter('games-table', '%s', event.target.value || undefined)", name
-          ),
-          tags$option(value = "", "全年度"),
-          lapply(yrs, function(y) {
-            opt <- tags$option(value = as.character(y), as.character(y))
-            if (y == default_yr) tagAppendAttributes(opt, selected = NA) else opt
-          })
-        )
-      }
-    ),
-    gamedate = colDef(name = "日付", width = 108,
-                      format = colFormat(date = TRUE, locales = "ja-JP")),
-    gametype = colDef(name = "種別", width = 120),
-    result   = colDef(
-      name  = "結果", width = 55, align = "center",
-      cell  = function(v) {
-        cls <- switch(v, W = "result-w", L = "result-l", "result-d")
-        sym <- switch(v, W = "\u25cb", L = "\u25cf", "\u25b3")
-        tags$span(class = cls, sym)
-      }
-    ),
-    disp_a  = colDef(name = "自レート", width = 90, align = "right",
-                     format = colFormat(digits = 1)),
-    score_a = colDef(
-      name = "得点", width = 60, align = "center",
-      style = function(v, ri) {
-        if (!is.na(v) && v > team_games$score_b[ri])
-          "font-weight:900; font-size:1rem;" else "color:#AAA;"
-      }
-    ),
-    score_b = colDef(
-      name = "失点", width = 60, align = "center",
-      style = function(v, ri) {
-        if (!is.na(v) && v > team_games$score_a[ri])
-          "font-weight:900; font-size:1rem;" else "color:#AAA;"
-      }
-    ),
-    delta_disp = colDef(
-      name  = "変動", width = 72, align = "right",
-      cell  = function(v) {
-        if (is.na(v)) return(tags$span())
-        cls <- if (v > 0) "change-up" else if (v < 0) "change-down" else "change-none"
-        fmt <- if (v > 0) paste0("+", sprintf("%.1f", v)) else sprintf("%.1f", v)
-        tags$span(class = cls, fmt)
-      }
-    ),
-    opp_full = colDef(
-      name = "対戦相手",
-      cell = function(v, ri) {
-        row <- team_games[ri, ]
-        tags$span(
-          tags$a(href  = paste0(TEAM_SLUG[row$opp], ".html"),
-                 style = paste0("font-weight:700; text-decoration:none; color:", row$opp_c1),
-                 v),
-          tags$span(class = "rating-badge", paste0("(", row$disp_b, ")"))
-        )
-      }
-    ),
-    opp_c1 = colDef(show = FALSE), disp_b = colDef(show = FALSE),
-    opp    = colDef(show = FALSE)
-  ),
-  elementId = "games-table"
-  ),
-  tags$script(HTML(sprintf(
-    '(function poll(){if(window.Reactable){Reactable.setFilter("games-table","yr","%s");}else{setTimeout(poll,50);}})();',
-    default_yr
-  )))
+    elementId = "team-games-table",
+    columns = list(
+      yr = colDef(show = FALSE, filterable = TRUE),
+      gamedate = colDef(
+        name = "日時",
+        width = 112,
+        align = "right",
+        format = colFormat(date = TRUE, locales = "ja-JP"),
+        filterable = FALSE
+      ),
+      gametype = colDef(name = "試合種別", minWidth = 120, filterable = FALSE),
+      name_a = colDef(
+        name = "大学A",
+        minWidth = 190,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- team_games[ri, ]
+          matchup_cell(row$name_a, row$team_a, row$c1_a, row$disp_a)
+        }
+      ),
+      score_a = colDef(
+        name = "A",
+        width = 62,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) score_cell(v, team_games$score_b[[ri]])
+      ),
+      score_dash = colDef(
+        name = "",
+        width = 36,
+        align = "center",
+        filterable = FALSE,
+        cell = function() tags$span(class = "dash-cell", "-")
+      ),
+      score_b = colDef(
+        name = "B",
+        width = 62,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) score_cell(v, team_games$score_a[[ri]])
+      ),
+      name_b = colDef(
+        name = "大学B",
+        minWidth = 190,
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- team_games[ri, ]
+          matchup_cell(row$name_b, row$team_b, row$c1_b, row$disp_b)
+        }
+      ),
+      delta_disp = colDef(
+        name = "変動",
+        width = 76,
+        align = "right",
+        filterable = FALSE,
+        cell = function(v) {
+          if (is.na(v)) {
+            return(tags$span())
+          }
+          cls <- if (v > 0) {
+            "change-up"
+          } else if (v < 0) {
+            "change-down"
+          } else {
+            "change-none"
+          }
+          fmt <- if (v > 0) paste0("+", sprintf("%.1f", v)) else sprintf("%.1f", v)
+          tags$span(class = cls, fmt)
+        }
+      ),
+      team_a = colDef(show = FALSE),
+      team_b = colDef(show = FALSE),
+      c1_a = colDef(show = FALSE),
+      c1_b = colDef(show = FALSE),
+      disp_a = colDef(show = FALSE),
+      disp_b = colDef(show = FALSE)
+    )
+  )
 )
 ```
 
-## シーズン別レート
+## シーズン終了時レート
 
 ```{r season-ratings}
 if (nrow(season_end) > 0) {
-  reactable(
-    season_end,
-    pagination = FALSE,
-    highlight  = TRUE,
-    columns = list(
-      label  = colDef(name = "シーズン",      minWidth = 160),
-      rating = colDef(name = "終了時レート", width = 120, align = "right",
-                      cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v)))
+  div(
+    class = "table-shell",
+    reactable(
+      season_end,
+      pagination = FALSE,
+      highlight = TRUE,
+      columns = list(
+        label = colDef(name = "シーズン", minWidth = 140),
+        rating = colDef(
+          name = "終了時レート",
+          width = 120,
+          align = "right",
+          cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
+        )
+      )
     )
   )
 } else {
-  cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">データがありません。</p>')
+  div(class = "copy-shell", tags$p("表示できるシーズンデータがありません。"))
 }
 ```
 
 <div class="back-links">
-  <a href="../index.html"       class="back-link">&#8592; ランキングに戻る</a>
+  <a href="../index.html" class="back-link">&#8592; ランキングに戻る</a>
   <a href="../methodology.html" class="back-link">&#8594; 計算方法の詳細</a>
 </div>
