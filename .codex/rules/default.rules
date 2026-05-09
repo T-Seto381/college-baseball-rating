@@ -1,0 +1,211 @@
+# Project-local Codex rules for college-baseball-rating.
+# Keep patterns narrow. More restrictive decisions win.
+
+prefix_rule(
+    pattern = ["git", "status"],
+    decision = "allow",
+    justification = "Status checks are safe and routine.",
+    match = [
+        "git status",
+        "git status --short",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "diff"],
+    decision = "allow",
+    justification = "Diff inspection is safe and routine.",
+    match = [
+        "git diff",
+        "git diff --stat -- website",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "branch", "--show-current"],
+    decision = "allow",
+    justification = "Checking the active branch is safe.",
+    match = [
+        "git branch --show-current",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "remote", "-v"],
+    decision = "allow",
+    justification = "Checking remotes is safe.",
+    match = [
+        "git remote -v",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "add", "--", ["website", ".github", ".codex", "AGENTS.md", "scripts"]],
+    decision = "allow",
+    justification = "Staging scoped project files is allowed.",
+    match = [
+        "git add -- website",
+        "git add -- .github",
+        "git add -- .codex",
+        "git add -- AGENTS.md",
+        "git add -- scripts",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "commit", "-m"],
+    decision = "allow",
+    justification = "Creating a normal commit for this repo is allowed.",
+    match = [
+        "git commit -m update website",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", "main"],
+    decision = "prompt",
+    justification = "Publishing to the remote repository should still be confirmed.",
+    match = [
+        "git push origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "run"],
+    decision = "prompt",
+    justification = "GitHub Actions access is allowed after confirmation.",
+    match = [
+        "gh run list",
+        "gh run watch 123456789",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rg"],
+    decision = "allow",
+    justification = "Repository search is safe.",
+    match = [
+        "rg --files",
+        "rg -n title website",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Get-ChildItem"],
+    decision = "allow",
+    justification = "Listing files is safe.",
+    match = [
+        "Get-ChildItem -Force",
+        "Get-ChildItem website -Recurse",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Get-Content"],
+    decision = "allow",
+    justification = "Reading local files is safe.",
+    match = [
+        "Get-Content -Raw website/index.qmd",
+        "Get-Content website/styles.css",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Select-String"],
+    decision = "allow",
+    justification = "Searching file contents is safe.",
+    match = [
+        "Select-String -Path website/index.qmd -Pattern title",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Rscript", "website/generate_pages.R"],
+    decision = "allow",
+    justification = "Regenerating QMD pages is routine project work.",
+    match = [
+        "Rscript website/generate_pages.R",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Rscript", "01_Code/04_big6_scraping.R"],
+    decision = "allow",
+    justification = "Refreshing Tokyo Big6 data is routine project work.",
+    match = [
+        "Rscript 01_Code/04_big6_scraping.R",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Rscript", "01_Code/05_rating_model.R"],
+    decision = "allow",
+    justification = "Recomputing ratings is routine project work.",
+    match = [
+        "Rscript 01_Code/05_rating_model.R",
+    ],
+)
+
+prefix_rule(
+    pattern = ["quarto", "render"],
+    decision = "allow",
+    justification = "Rendering the local website is routine project work.",
+    match = [
+        "quarto render",
+        "quarto render website",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Invoke-WebRequest", "-UseBasicParsing"],
+    decision = "prompt",
+    justification = "Published-site verification may use network access and should stay scoped.",
+    match = [
+        "Invoke-WebRequest -UseBasicParsing https://t-seto381.github.io/college-baseball-rating/",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "--force"],
+    decision = "forbidden",
+    justification = "Force-push is not allowed in unattended mode.",
+    match = [
+        "git push --force origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Hard reset is not allowed in unattended mode.",
+    match = [
+        "git reset --hard",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "forbidden",
+    justification = "Recursive delete is not allowed in unattended mode.",
+    match = [
+        "rm -rf docs",
+    ],
+)
+
+prefix_rule(
+    pattern = ["Remove-Item", "-Recurse", "-Force"],
+    decision = "forbidden",
+    justification = "Recursive delete is not allowed in unattended mode.",
+    match = [
+        "Remove-Item -Recurse -Force docs",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "secret"],
+    decision = "forbidden",
+    justification = "Secret management is out of scope for unattended website work.",
+    match = [
+        "gh secret list",
+    ],
+)

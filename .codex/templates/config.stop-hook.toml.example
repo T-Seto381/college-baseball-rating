@@ -1,0 +1,9 @@
+[features]
+codex_hooks = true
+
+[hooks]
+Stop = [
+  { hooks = [
+    { type = "command", command = "C:/Users/USERNAME/.codex/hooks/auto_approve_stop.cmd", timeout = 10 },
+  ] },
+]
