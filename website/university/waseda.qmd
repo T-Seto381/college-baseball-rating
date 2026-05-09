@@ -632,6 +632,89 @@ if (nrow(default_focus) == 0) {
   )
 }
 
+year_jump_presets <- bind_rows(
+  if (nrow(team_peak) > 0) {
+    tibble(
+      priority = 1L,
+      yr = as.character(year(team_peak$date[[1]])),
+      label = "Peak Year",
+      year_label = paste0(year(team_peak$date[[1]]), "年"),
+      note = paste0(
+        "歴代ピーク ",
+        sprintf("%.1f", team_peak$peak_rating[[1]]),
+        " / ",
+        format(team_peak$date[[1]], "%m/%d")
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(best_season_end) > 0) {
+    tibble(
+      priority = 2L,
+      yr = best_season_end$yr[[1]],
+      label = "Best Finish",
+      year_label = paste0(best_season_end$yr[[1]], "年"),
+      note = paste0(
+        best_season_end$label[[1]],
+        " / ",
+        sprintf("%.1f", best_season_end$rating[[1]])
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(latest_season_title) > 0) {
+    tibble(
+      priority = 3L,
+      yr = latest_season_title$yr[[1]],
+      label = "Latest Title",
+      year_label = paste0(latest_season_title$yr[[1]], "年"),
+      note = paste0(
+        latest_season_title$label[[1]],
+        " / 終点 #",
+        latest_season_title$season_rank[[1]]
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(top_upset_win) > 0) {
+    tibble(
+      priority = 4L,
+      yr = as.character(year(top_upset_win$gamedate[[1]])),
+      label = "Upset Win",
+      year_label = paste0(year(top_upset_win$gamedate[[1]]), "年"),
+      note = paste0(
+        top_upset_win$name_b[[1]],
+        " に勝利 / 勝率 ",
+        sprintf("%.1f%%", 100 * top_upset_win$team_win_prob[[1]])
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(largest_swing_game) > 0) {
+    tibble(
+      priority = 5L,
+      yr = as.character(year(largest_swing_game$gamedate[[1]])),
+      label = "Big Swing",
+      year_label = paste0(year(largest_swing_game$gamedate[[1]]), "年"),
+      note = paste0(
+        largest_swing_game$name_b[[1]],
+        " 戦 / 変動 ",
+        sprintf("%+.1f", largest_swing_game$delta_disp[[1]])
+      )
+    )
+  } else {
+    tibble()
+  }
+) |>
+  filter(yr %in% as.character(available_yrs)) |>
+  arrange(priority) |>
+  distinct(yr, .keep_all = TRUE) |>
+  slice_head(n = 4)
+
 year_focus_cards <- bind_rows(
   year_focus |> filter(yr == "all"),
   year_focus |> filter(yr != "all")
@@ -1081,6 +1164,14 @@ hero_script <- glue::glue(
       }});
     }}
 
+    function syncYearPresets(year) {{
+      document.querySelectorAll('[data-year-preset]').forEach(function(button) {{
+        const active = button.getAttribute('data-year-preset') === String(year);
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }});
+    }}
+
     function syncYearCards(year) {{
       document.querySelectorAll('[data-year-card]').forEach(function(button) {{
         const active = button.getAttribute('data-year-card') === String(year);
@@ -1093,6 +1184,7 @@ hero_script <- glue::glue(
       syncYear(year);
       renderFocus(year);
       updateYearStepper(year);
+      syncYearPresets(year);
       syncYearCards(year);
       const filterValue = year === 'all' ? void 0 : year;
 
@@ -1191,6 +1283,15 @@ hero_script <- glue::glue(
             getSelectedYear()
           );
           if (targetYear) {{
+            applyYear(targetYear);
+          }}
+        }});
+      }});
+
+      document.querySelectorAll('[data-year-preset]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          const targetYear = button.getAttribute('data-year-preset');
+          if (hasYearOption(targetYear)) {{
             applyYear(targetYear);
           }}
         }});
@@ -1514,6 +1615,27 @@ tagList(
         tags$button(class = "detail-year-button", type = "button", `data-year-step` = "newer", "新しい年"),
         tags$button(class = "detail-year-button", type = "button", `data-year-step` = "older", "古い年"),
         tags$button(class = "detail-year-button detail-year-button-secondary", type = "button", `data-year-step` = "all", "全期間")
+      ),
+      (
+        if (nrow(year_jump_presets) > 0) {
+        div(
+          class = "detail-year-preset-grid",
+          lapply(seq_len(nrow(year_jump_presets)), function(i) {
+            row <- year_jump_presets[i, ]
+
+            tags$button(
+              class = "detail-year-preset-button",
+              type = "button",
+              `data-year-preset` = row$yr,
+              div(class = "detail-year-preset-label", row$label),
+              div(class = "detail-year-preset-year", row$year_label),
+              div(class = "detail-year-preset-note", row$note)
+            )
+          })
+        )
+      } else {
+        div(class = "detail-year-presets-empty", "表示できる記録ジャンプがありません。")
+      }
       )
     ),
     search_options,

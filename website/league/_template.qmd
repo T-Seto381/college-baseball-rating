@@ -895,6 +895,104 @@ if (nrow(default_focus) == 0) {
   )
 }
 
+league_peak_year_row <- league_team_peaks |>
+  arrange(desc(peak_rating), desc(peak_date), TeamName) |>
+  slice_head(n = 1)
+
+league_rivalry_year_row <- league_rivalry_summary |>
+  arrange(desc(games), desc(year), pair_team1_name, pair_team2_name) |>
+  slice_head(n = 1)
+
+year_jump_presets <- bind_rows(
+  if (nrow(league_peak_year_row) > 0) {
+    tibble(
+      priority = 1L,
+      yr = as.character(year(league_peak_year_row$peak_date[[1]])),
+      label = "Peak Year",
+      year_label = paste0(year(league_peak_year_row$peak_date[[1]]), "年"),
+      note = paste0(
+        league_peak_year_row$TeamName[[1]],
+        " のピーク ",
+        sprintf("%.1f", league_peak_year_row$peak_rating[[1]])
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(season_record_board) > 0) {
+    tibble(
+      priority = 2L,
+      yr = season_record_board$yr[[1]],
+      label = "Best Finish",
+      year_label = paste0(season_record_board$yr[[1]], "年"),
+      note = paste0(
+        season_record_board$season_label[[1]],
+        " ",
+        season_record_board$TeamName[[1]],
+        " / ",
+        sprintf("%.1f", season_record_board$display_rating[[1]])
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(top_title_team) > 0) {
+    tibble(
+      priority = 3L,
+      yr = as.character(top_title_team$latest_title[[1]]),
+      label = "Latest Title",
+      year_label = paste0(top_title_team$latest_title[[1]], "年"),
+      note = paste0(
+        top_title_team$TeamName[[1]],
+        " / 終点首位 ",
+        top_title_team$season_titles[[1]],
+        " 回"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(upset_record_board) > 0) {
+    tibble(
+      priority = 4L,
+      yr = upset_record_board$yr[[1]],
+      label = "Upset Year",
+      year_label = paste0(upset_record_board$yr[[1]], "年"),
+      note = paste0(
+        upset_record_board$winner_name[[1]],
+        " 対 ",
+        upset_record_board$opponent_name[[1]],
+        " / 勝率 ",
+        sprintf("%.1f%%", 100 * upset_record_board$league_win_prob[[1]])
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(league_rivalry_year_row) > 0) {
+    tibble(
+      priority = 5L,
+      yr = league_rivalry_year_row$yr[[1]],
+      label = "Rivalry Year",
+      year_label = paste0(league_rivalry_year_row$yr[[1]], "年"),
+      note = paste0(
+        league_rivalry_year_row$pair_team1_name[[1]],
+        " vs ",
+        league_rivalry_year_row$pair_team2_name[[1]],
+        " / ",
+        league_rivalry_year_row$games[[1]],
+        " 試合"
+      )
+    )
+  } else {
+    tibble()
+  }
+) |>
+  filter(yr %in% as.character(available_yrs)) |>
+  arrange(priority) |>
+  distinct(yr, .keep_all = TRUE) |>
+  slice_head(n = 4)
+
 year_focus_cards <- bind_rows(
   year_focus |> filter(yr == "all"),
   year_focus |> filter(yr != "all")
@@ -1101,6 +1199,14 @@ hero_script <- glue::glue(
       }});
     }}
 
+    function syncYearPresets(year) {{
+      document.querySelectorAll('[data-year-preset]').forEach(function(button) {{
+        const active = button.getAttribute('data-year-preset') === String(year);
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }});
+    }}
+
     function syncYearCards(year) {{
       document.querySelectorAll('[data-year-card]').forEach(function(button) {{
         const active = button.getAttribute('data-year-card') === String(year);
@@ -1113,6 +1219,7 @@ hero_script <- glue::glue(
       syncYear(year);
       renderFocus(year);
       updateYearStepper(year);
+      syncYearPresets(year);
       syncYearCards(year);
       const filterValue = year === 'all' ? void 0 : year;
 
@@ -1216,6 +1323,15 @@ hero_script <- glue::glue(
             getSelectedYear()
           );
           if (targetYear) {{
+            applyYear(targetYear);
+          }}
+        }});
+      }});
+
+      document.querySelectorAll('[data-year-preset]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          const targetYear = button.getAttribute('data-year-preset');
+          if (hasYearOption(targetYear)) {{
             applyYear(targetYear);
           }}
         }});
@@ -1363,6 +1479,27 @@ tagList(
         tags$button(class = "detail-year-button", type = "button", `data-year-step` = "newer", "新しい年"),
         tags$button(class = "detail-year-button", type = "button", `data-year-step` = "older", "古い年"),
         tags$button(class = "detail-year-button detail-year-button-secondary", type = "button", `data-year-step` = "all", "全期間")
+      ),
+      (
+        if (nrow(year_jump_presets) > 0) {
+        div(
+          class = "detail-year-preset-grid",
+          lapply(seq_len(nrow(year_jump_presets)), function(i) {
+            row <- year_jump_presets[i, ]
+
+            tags$button(
+              class = "detail-year-preset-button",
+              type = "button",
+              `data-year-preset` = row$yr,
+              div(class = "detail-year-preset-label", row$label),
+              div(class = "detail-year-preset-year", row$year_label),
+              div(class = "detail-year-preset-note", row$note)
+            )
+          })
+        )
+      } else {
+        div(class = "detail-year-presets-empty", "表示できる記録ジャンプがありません。")
+      }
       )
     ),
     div(
