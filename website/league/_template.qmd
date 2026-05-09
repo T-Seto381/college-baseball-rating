@@ -229,6 +229,43 @@ season_title_board <- season_leaders |>
   ) |>
   arrange(desc(season_titles), desc(best_title_rating), desc(latest_title), TeamName)
 
+league_team_peaks <- league_hist |>
+  group_by(team, TeamName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    TeamName,
+    c1,
+    peak_rating = round(display_rating, 1),
+    peak_date = date
+  )
+
+league_team_directory <- league_ratings |>
+  arrange(rank) |>
+  mutate(current_league_rank = row_number()) |>
+  transmute(
+    team,
+    TeamName,
+    c1,
+    current_global_rank = rank,
+    current_league_rank,
+    current_rating = round(display_rating, 1)
+  ) |>
+  left_join(
+    league_team_peaks |> select(team, peak_rating, peak_date),
+    by = "team"
+  ) |>
+  left_join(
+    season_title_board |> select(team, season_titles, latest_title, best_title_season),
+    by = "team"
+  ) |>
+  mutate(
+    season_titles = coalesce(season_titles, 0L),
+    gap_from_peak = round(current_rating - peak_rating, 1)
+  ) |>
+  arrange(current_league_rank)
+
 season_record_board <- season_snapshots |>
   arrange(desc(display_rating), desc(end_date), TeamName) |>
   transmute(
@@ -884,6 +921,96 @@ tagList(
       div(class = "record-note", "年度選択は下の年鑑比較表、試合一覧、推移グラフに反映されます。記録ボードは全期間固定です。")
     ),
     div(
+      id = "league-team-directory",
+      class = "peer-directory-panel",
+      div(
+        class = "peer-directory-head",
+        div(
+          div(class = "peer-directory-kicker", "Team Hub"),
+          div(class = "peer-directory-title", "所属校クイック比較"),
+          p(
+            class = "peer-directory-copy",
+            "このリーグを構成する大学を現在値、歴代ピーク、終点首位回数で並べた横断ナビです。リーグページを起点に大学詳細へ降りて比較を続けやすくします。"
+          )
+        )
+      ),
+      div(
+        class = "peer-directory-grid",
+        lapply(seq_len(nrow(league_team_directory)), function(i) {
+          row <- league_team_directory[i, ]
+
+          tags$a(
+            href = team_url(row$team),
+            class = "peer-card",
+            div(class = "peer-card-kicker", paste0("リーグ内 #", row$current_league_rank)),
+            div(
+              class = "peer-card-title-row",
+              div(
+                class = "peer-card-title",
+                style = paste0("color:", row$c1),
+                row$TeamName
+              )
+            ),
+            div(
+              class = "peer-card-copy",
+              paste0(
+                "全国 ",
+                ifelse(is.na(row$current_global_rank), "-", row$current_global_rank),
+                " 位。大学詳細ページで年度別比較と対戦相手別比較へ進めます。"
+              )
+            ),
+            div(
+              class = "peer-card-metrics",
+              div(
+                class = "peer-card-metric",
+                div(class = "peer-card-metric-label", "現在値"),
+                div(
+                  class = "peer-card-metric-value",
+                  ifelse(is.na(row$current_rating), "-", sprintf("%.1f", row$current_rating))
+                ),
+                div(
+                  class = "peer-card-metric-note",
+                  paste0(
+                    "ピーク差 ",
+                    ifelse(is.na(row$gap_from_peak), "-", sprintf("%+.1f", row$gap_from_peak))
+                  )
+                )
+              ),
+              div(
+                class = "peer-card-metric",
+                div(class = "peer-card-metric-label", "歴代ピーク"),
+                div(
+                  class = "peer-card-metric-value",
+                  ifelse(is.na(row$peak_rating), "-", sprintf("%.1f", row$peak_rating))
+                ),
+                div(
+                  class = "peer-card-metric-note",
+                  ifelse(is.na(row$peak_date), "記録なし", format(row$peak_date, "%Y/%m/%d"))
+                )
+              ),
+              div(
+                class = "peer-card-metric",
+                div(class = "peer-card-metric-label", "終点首位"),
+                div(
+                  class = "peer-card-metric-value",
+                  paste0(ifelse(is.na(row$season_titles), 0, row$season_titles), "回")
+                ),
+                div(
+                  class = "peer-card-metric-note",
+                  ifelse(
+                    is.na(row$latest_title),
+                    "終点首位記録なし",
+                    paste0("最新 ", row$latest_title, " / ", row$best_title_season)
+                  )
+                )
+              )
+            ),
+            div(class = "peer-card-footer", "大学詳細へ")
+          )
+        })
+      )
+    ),
+    div(
       class = "route-grid",
       tags$a(
         href = "../index.html",
@@ -920,6 +1047,7 @@ tagList(
       ),
       div(
         class = "section-rail-nav",
+        tags$a(href = "#league-team-directory", class = "section-rail-link", "所属校比較"),
         tags$a(href = "#league-year-archive", class = "section-rail-link", "年次アーカイブ"),
         tags$a(href = "#league-records", class = "section-rail-link", "記録ボード"),
         tags$a(href = "#league-yearbook", class = "section-rail-link", "年度別比較"),

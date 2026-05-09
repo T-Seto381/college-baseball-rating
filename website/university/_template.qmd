@@ -85,6 +85,7 @@ team_row <- all_ranked |> filter(team == TEAM)
 current_rating <- if (nrow(team_row) > 0) team_row$display_rating[[1]] else NA_real_
 current_rank <- if (nrow(team_row) > 0) team_row$rank[[1]] else NA_integer_
 total_teams <- nrow(all_ranked)
+focus_current_rating <- current_rating
 
 league_current_table <- all_ranked |>
   left_join(
@@ -164,6 +165,44 @@ stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_ratin
 team_peak <- team_hist_all |>
   slice_max(display_rating, n = 1, with_ties = FALSE) |>
   mutate(peak_rating = round(display_rating, 1))
+
+league_peer_peaks <- rating_hist |>
+  filter(team %in% league_peer_teams, date <= Sys.Date()) |>
+  left_join(
+    league_peer_info,
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(!is.na(TeamName)) |>
+  group_by(team, TeamName, c1) |>
+  slice_max(display_rating, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(
+    team,
+    TeamName,
+    c1,
+    peer_peak_rating = round(display_rating, 1),
+    peer_peak_date = date
+  )
+
+league_peer_directory <- league_current_table |>
+  transmute(
+    team,
+    TeamName,
+    c1,
+    current_global_rank = rank,
+    league_rank,
+    current_rating = round(display_rating, 1)
+  ) |>
+  left_join(
+    league_peer_peaks |> select(team, peer_peak_rating, peer_peak_date),
+    by = "team"
+  ) |>
+  mutate(
+    gap_from_peak = round(current_rating - peer_peak_rating, 1),
+    rating_gap_vs_focus = round(current_rating - focus_current_rating, 1),
+    focus_team = team == TEAM
+  ) |>
+  arrange(league_rank)
 
 season_bg_df <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
@@ -975,6 +1014,94 @@ tagList(
     )
   ),
   div(
+    id = "league-peer-directory",
+    class = "peer-directory-panel",
+    div(
+      class = "peer-directory-head",
+      div(
+        div(class = "peer-directory-kicker", "Peer Directory"),
+        div(class = "peer-directory-title", "同リーグの大学を横断して比べる"),
+        p(
+          class = "peer-directory-copy",
+          "同じリーグの現在値、歴代ピーク、この大学との差を同じ面で確認しながら、相手校ページへすぐ移動できる比較ナビです。"
+        )
+      )
+    ),
+    div(
+      class = "peer-directory-grid",
+      lapply(seq_len(nrow(league_peer_directory)), function(i) {
+        row <- league_peer_directory[i, ]
+
+        tags$a(
+          href = team_url(row$team),
+          class = paste("peer-card", if (row$focus_team) "is-focus" else ""),
+          `aria-current` = if (row$focus_team) "page" else NULL,
+          div(class = "peer-card-kicker", paste0("リーグ内 #", row$league_rank)),
+          div(
+            class = "peer-card-title-row",
+            div(
+              class = "peer-card-title",
+              style = paste0("color:", row$c1),
+              row$TeamName
+            ),
+            if (row$focus_team) tags$span(class = "focus-chip", "現在表示中")
+          ),
+          div(
+            class = "peer-card-copy",
+            paste0(
+              "全国 ",
+              ifelse(is.na(row$current_global_rank), "-", row$current_global_rank),
+              " 位。現在と歴代ピークを同じ尺度で見比べます。"
+            )
+          ),
+          div(
+            class = "peer-card-metrics",
+            div(
+              class = "peer-card-metric",
+              div(class = "peer-card-metric-label", "現在値"),
+              div(
+                class = "peer-card-metric-value",
+                ifelse(is.na(row$current_rating), "-", sprintf("%.1f", row$current_rating))
+              ),
+              div(
+                class = "peer-card-metric-note",
+                paste0(
+                  "この大学との差 ",
+                  ifelse(is.na(row$rating_gap_vs_focus), "-", sprintf("%+.1f", row$rating_gap_vs_focus))
+                )
+              )
+            ),
+            div(
+              class = "peer-card-metric",
+              div(class = "peer-card-metric-label", "歴代ピーク"),
+              div(
+                class = "peer-card-metric-value",
+                ifelse(is.na(row$peer_peak_rating), "-", sprintf("%.1f", row$peer_peak_rating))
+              ),
+              div(
+                class = "peer-card-metric-note",
+                ifelse(is.na(row$peer_peak_date), "記録なし", format(row$peer_peak_date, "%Y/%m/%d"))
+              )
+            ),
+            div(
+              class = "peer-card-metric",
+              div(class = "peer-card-metric-label", "ピーク差"),
+              div(
+                class = "peer-card-metric-value",
+                ifelse(is.na(row$gap_from_peak), "-", sprintf("%+.1f", row$gap_from_peak))
+              ),
+              div(class = "peer-card-metric-note", "現在値 - 歴代ピーク")
+            )
+          ),
+          div(
+            class = "peer-card-footer",
+            if (row$focus_team) "この大学を表示中" else "この大学の詳細へ"
+          )
+        )
+      })
+    )
+  ),
+  div(
     class = "year-focus-shell year-focus-shell-standalone",
     div(
       class = "year-focus-header",
@@ -1074,6 +1201,7 @@ tagList(
     ),
     div(
       class = "section-rail-nav",
+      tags$a(href = "#league-peer-directory", class = "section-rail-link", "同リーグ一覧"),
       tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
       tags$a(href = "#year-summary", class = "section-rail-link", "年度別サマリー"),
       tags$a(href = "#league-context", class = "section-rail-link", "同年リーグ比較"),
