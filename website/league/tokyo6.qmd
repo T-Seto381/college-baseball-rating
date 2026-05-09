@@ -333,6 +333,25 @@ league_rivalry_summary <- league_internal_games |>
   ) |>
   arrange(desc(year), desc(games), pair_team1_name, pair_team2_name)
 
+league_rivalry_all <- league_internal_games |>
+  group_by(
+    pair_team1,
+    pair_team2,
+    pair_team1_name,
+    pair_team2_name,
+    pair_team1_c1,
+    pair_team2_c1
+  ) |>
+  summarise(
+    year_count = n_distinct(year),
+    games = n(),
+    pair_team1_wins = sum(pair_team1_score > pair_team2_score, na.rm = TRUE),
+    pair_team2_wins = sum(pair_team2_score > pair_team1_score, na.rm = TRUE),
+    draws = sum(pair_team1_score == pair_team2_score, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(games), desc(year_count), pair_team1_name, pair_team2_name)
+
 season_end_dates <- league_analysis_games |>
   group_by(yr_val = year(gamedate), season) |>
   summarise(end_date = max(gamedate), .groups = "drop") |>
@@ -421,6 +440,149 @@ league_team_directory <- league_ratings |>
     gap_from_peak = round(current_rating - peak_rating, 1)
   ) |>
   arrange(current_league_rank)
+
+adjacent_current_pairs <- league_team_directory |>
+  transmute(
+    team1 = team,
+    name1 = TeamName,
+    rank1 = current_league_rank,
+    rating1 = current_rating,
+    team2 = dplyr::lead(team),
+    name2 = dplyr::lead(TeamName),
+    rank2 = dplyr::lead(current_league_rank),
+    rating2 = dplyr::lead(current_rating),
+    rating_gap = abs(dplyr::lead(current_rating) - current_rating)
+  ) |>
+  filter(!is.na(team2)) |>
+  arrange(rating_gap, rank1)
+
+closest_current_pair <- adjacent_current_pairs |>
+  slice_head(n = 1)
+
+peak_duel <- league_team_peaks |>
+  arrange(desc(peak_rating), desc(peak_date), TeamName) |>
+  filter(team != leader_team) |>
+  slice_head(n = 1)
+
+if (nrow(peak_duel) == 0) {
+  peak_duel <- league_team_peaks |>
+    arrange(desc(peak_rating), desc(peak_date), TeamName) |>
+    slice_head(n = 1)
+}
+
+title_duel <- season_title_board |>
+  arrange(desc(season_titles), desc(best_title_rating), desc(latest_title), TeamName) |>
+  filter(team != leader_team) |>
+  slice_head(n = 1)
+
+if (nrow(title_duel) == 0) {
+  title_duel <- season_title_board |>
+    arrange(desc(season_titles), desc(best_title_rating), desc(latest_title), TeamName) |>
+    slice_head(n = 1)
+}
+
+most_played_rivalry <- league_rivalry_all |>
+  slice_head(n = 1)
+
+league_compare_shortcuts <- bind_rows(
+  if (!is.na(leader_team) && !is.na(runner_up_team)) {
+    tibble(
+      priority = 1L,
+      lens = "Current Race",
+      label = "Current Top Two",
+      team1 = leader_team,
+      team2 = runner_up_team,
+      title = paste(leader_name, "vs", runner_up_name),
+      note = paste0(
+        "現在 #1 と #2 をそのまま比較する入口です。差は ",
+        sprintf("%.1f", abs(league_ratings$display_rating[[1]] - league_ratings$display_rating[[2]])),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(closest_current_pair) > 0) {
+    tibble(
+      priority = 2L,
+      lens = "Current Race",
+      label = "Closest Gap",
+      team1 = closest_current_pair$team1[[1]],
+      team2 = closest_current_pair$team2[[1]],
+      title = paste(closest_current_pair$name1[[1]], "vs", closest_current_pair$name2[[1]]),
+      note = paste0(
+        "現在順位で最も差が小さい隣接ペアです。#",
+        closest_current_pair$rank1[[1]],
+        " と #",
+        closest_current_pair$rank2[[1]],
+        " の差は ",
+        sprintf("%.1f", closest_current_pair$rating_gap[[1]]),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (!is.na(leader_team) && nrow(peak_duel) > 0 && peak_duel$team[[1]] != leader_team) {
+    tibble(
+      priority = 3L,
+      lens = "Peak Lens",
+      label = "Ceiling Check",
+      team1 = leader_team,
+      team2 = peak_duel$team[[1]],
+      title = paste(leader_name, "vs", peak_duel$TeamName[[1]]),
+      note = paste0(
+        "現在首位と歴代ピーク上位を並べる比較です。相手校の歴代ピークは ",
+        sprintf("%.1f", peak_duel$peak_rating[[1]]),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (!is.na(leader_team) && nrow(title_duel) > 0 && title_duel$team[[1]] != leader_team) {
+    tibble(
+      priority = 4L,
+      lens = "Title Lens",
+      label = "Dynasty Check",
+      team1 = leader_team,
+      team2 = title_duel$team[[1]],
+      title = paste(leader_name, "vs", title_duel$TeamName[[1]]),
+      note = paste0(
+        "現在首位と終点首位回数の多い大学を比べる入口です。相手校の終点首位は ",
+        title_duel$season_titles[[1]],
+        " 回です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(most_played_rivalry) > 0) {
+    tibble(
+      priority = 5L,
+      lens = "Rivalry Archive",
+      label = "Most Played Pair",
+      team1 = most_played_rivalry$pair_team1[[1]],
+      team2 = most_played_rivalry$pair_team2[[1]],
+      title = paste(most_played_rivalry$pair_team1_name[[1]], "vs", most_played_rivalry$pair_team2_name[[1]]),
+      note = paste0(
+        "リーグ内で最も対戦数が多いカードです。",
+        most_played_rivalry$year_count[[1]],
+        " 年間で ",
+        most_played_rivalry$games[[1]],
+        " 試合ありました。"
+      )
+    )
+  } else {
+    tibble()
+  }
+) |>
+  mutate(pair_key = map2_chr(team1, team2, function(a, b) {
+    paste(sort(c(a, b)), collapse = "|")
+  })) |>
+  arrange(priority) |>
+  distinct(pair_key, .keep_all = TRUE) |>
+  slice_head(n = 4)
 
 season_record_board <- season_snapshots |>
   arrange(desc(display_rating), desc(end_date), TeamName) |>
@@ -1332,6 +1494,48 @@ tagList(
         })
       )
     ),
+    if (nrow(league_compare_shortcuts) > 0) {
+      tagList(
+        div(
+          id = "league-compare-shortcuts",
+          class = "copy-shell",
+          tags$p(
+            class = "section-lead",
+            "リーグの中でどの 2 校を見比べるべきかを、現在順位、歴代ピーク、終点首位、対戦カードの観点から並べました。リーグ全体の年鑑から、そのまま比較デスクへ入るための近道です。"
+          ),
+          tags$p(
+            class = "record-note",
+            "選択年度は比較ページにも引き継がれます。リーグページで気になったカードを、現在値と年度別比較の両方でそのまま掘り下げられます。"
+          )
+        ),
+        div(
+          class = "compare-shortcut-grid",
+          lapply(seq_len(nrow(league_compare_shortcuts)), function(i) {
+            row <- league_compare_shortcuts[i, ]
+
+            tags$article(
+              class = "compare-shortcut-card",
+              div(class = "compare-shortcut-label", row$lens),
+              div(class = "compare-shortcut-meta", row$label),
+              tags$a(
+                href = compare_url(row$team1, row$team2),
+                class = "compare-shortcut-title",
+                row$title
+              ),
+              div(class = "compare-shortcut-note", row$note),
+              div(
+                class = "directory-link-row",
+                tags$a(
+                  href = compare_url(row$team1, row$team2),
+                  class = "directory-link table-action-link",
+                  "比較デスクへ"
+                )
+              )
+            )
+          })
+        )
+      )
+    },
     div(
       class = "route-grid",
       tags$a(
@@ -1370,6 +1574,7 @@ tagList(
       div(
         class = "section-rail-nav",
         tags$a(href = "#league-team-directory", class = "section-rail-link", "所属校比較"),
+        tags$a(href = "#league-compare-shortcuts", class = "section-rail-link", "比較ショートカット"),
         tags$a(href = "#league-year-archive", class = "section-rail-link", "年次アーカイブ"),
         tags$a(href = "#league-records", class = "section-rail-link", "記録ボード"),
         tags$a(href = "#league-yearbook", class = "section-rail-link", "年度別比較"),
