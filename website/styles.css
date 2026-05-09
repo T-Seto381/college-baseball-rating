@@ -661,6 +661,53 @@ main.content {
   text-transform: uppercase;
 }
 
+.compare-shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.compare-shortcut-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 176px;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(236, 243, 239, 0.92));
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 26px rgba(20, 30, 40, 0.05);
+}
+
+.compare-shortcut-label {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compare-shortcut-title {
+  color: var(--ink);
+  font-size: 1.14rem;
+  line-height: 1.2;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.compare-shortcut-title:hover {
+  text-decoration: underline;
+}
+
+.compare-shortcut-note {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
 .history-snapshot-card {
   min-height: 128px;
   padding: 16px 18px;
@@ -1329,6 +1376,18 @@ h3 {
   color: var(--ink);
   text-decoration: none;
   border-color: var(--line-strong);
+}
+
+.table-action-link {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.compare-secondary-link {
+  background: rgba(247, 250, 247, 0.92);
 }
 
 .directory-structure {

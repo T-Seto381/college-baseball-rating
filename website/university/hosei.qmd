@@ -70,6 +70,37 @@ league_url <- function(league, prefix = "../") {
   paste0(prefix, "league/", slug, ".html")
 }
 
+compare_url <- function(team1, team2, prefix = "../") {
+  if (
+    is.null(team1) || is.null(team2) ||
+      is.na(team1) || is.na(team2) ||
+      identical(team1, team2)
+  ) {
+    return("#")
+  }
+
+  paste0(
+    prefix,
+    "compare.html?team1=",
+    utils::URLencode(team1, reserved = TRUE),
+    "&team2=",
+    utils::URLencode(team2, reserved = TRUE)
+  )
+}
+
+compare_action <- function(team1, team2, label = "2校比較", prefix = "../") {
+  href <- compare_url(team1, team2, prefix = prefix)
+  if (href == "#") {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$a(
+    href = href,
+    class = "directory-link table-action-link",
+    label
+  )
+}
+
 team_info <- teams_info |> filter(TeamShortName == TEAM) |> slice(1)
 team_full_name <- if (nrow(team_info) > 0) team_info$TeamName else TEAM
 league_name <- if (nrow(team_info) > 0) team_info$LeagueName else "不明"
@@ -80,6 +111,7 @@ league_peer_info <- teams_info |>
 league_peer_teams <- league_peer_info$TeamShortName
 
 all_ranked <- final_ratings |> arrange(rank)
+ranked_team_ids <- all_ranked$team
 team_row <- all_ranked |> filter(team == TEAM)
 current_rating <- if (nrow(team_row) > 0) team_row$display_rating[[1]] else NA_real_
 current_rank <- if (nrow(team_row) > 0) team_row$rank[[1]] else NA_integer_
@@ -662,6 +694,76 @@ opponent_summary_all <- team_games_base |>
 
 primary_opponent <- opponent_summary_all |>
   slice_head(n = 1)
+
+comparison_shortcuts <- bind_rows(
+  if (nrow(league_leader) > 0 && league_leader$team[[1]] != TEAM) {
+    tibble(
+      slot = 1L,
+      label = "League Leader",
+      team = league_leader$team[[1]],
+      TeamName = league_leader$TeamName[[1]],
+      c1 = league_leader$c1[[1]],
+      note = paste0(
+        "現在リーグ #1 / 全国 ",
+        league_leader$rank[[1]],
+        " 位 / レート ",
+        sprintf("%.1f", league_leader$display_rating[[1]])
+      )
+    )
+  },
+  if (nrow(peer_above) > 0) {
+    tibble(
+      slot = 2L,
+      label = "Above You",
+      team = peer_above$team[[1]],
+      TeamName = peer_above$TeamName[[1]],
+      c1 = peer_above$c1[[1]],
+      note = paste0(
+        "一つ上との差 ",
+        sprintf("%.1f", gap_to_above),
+        " / 現在リーグ #",
+        peer_above$league_rank[[1]]
+      )
+    )
+  },
+  if (nrow(peer_below) > 0) {
+    tibble(
+      slot = 3L,
+      label = "Below You",
+      team = peer_below$team[[1]],
+      TeamName = peer_below$TeamName[[1]],
+      c1 = peer_below$c1[[1]],
+      note = paste0(
+        "一つ下との差 ",
+        sprintf("%.1f", gap_to_below),
+        " / 現在リーグ #",
+        peer_below$league_rank[[1]]
+      )
+    )
+  },
+  if (nrow(primary_opponent) > 0 && primary_opponent$team_b[[1]] %in% ranked_team_ids) {
+    tibble(
+      slot = 4L,
+      label = "Frequent Opponent",
+      team = primary_opponent$team_b[[1]],
+      TeamName = primary_opponent$name_b[[1]],
+      c1 = primary_opponent$c1_b[[1]],
+      note = paste0(
+        "通算 ",
+        primary_opponent$games[[1]],
+        " 試合 / ",
+        primary_opponent$wins[[1]],
+        "-",
+        primary_opponent$losses[[1]],
+        "-",
+        primary_opponent$draws[[1]]
+      )
+    )
+  }
+) |>
+  filter(!is.na(team), team != TEAM) |>
+  distinct(team, .keep_all = TRUE) |>
+  arrange(slot)
 
 team_games <- team_games_base |>
   arrange(desc(gamedate)) |>
@@ -1277,6 +1379,54 @@ tagList(
       }
     )
   ),
+  if (nrow(comparison_shortcuts) > 0) {
+    tagList(
+      div(
+        id = "compare-shortcuts",
+        class = "copy-shell",
+        tags$p(
+          class = "section-lead",
+          "比較デスクへすぐ送れる組み合わせを、この大学の現在地に近い相手からまとめました。選択年度はそのまま引き継がれるので、現在比較から年度比較へそのまま移れます。"
+        ),
+        tags$p(
+          class = "record-note",
+          "相手校を手で選び直さずに、上位争い・近接順位・主要対戦相手の比較へ入るためのショートカットです。"
+        )
+      ),
+      div(
+        class = "compare-shortcut-grid",
+        lapply(seq_len(nrow(comparison_shortcuts)), function(i) {
+          row <- comparison_shortcuts[i, ]
+          tags$article(
+            class = "compare-shortcut-card",
+            div(class = "compare-shortcut-label", row$label),
+            tags$a(
+              href = compare_url(TEAM, row$team),
+              class = "compare-shortcut-title",
+              style = paste0("color:", row$c1),
+              row$TeamName
+            ),
+            div(class = "compare-shortcut-note", row$note),
+            div(
+              class = "directory-link-row",
+              tags$a(
+                href = compare_url(TEAM, row$team),
+                class = "directory-link table-action-link",
+                "比較デスクへ"
+              ),
+              if (team_url(row$team) != "#") {
+                tags$a(
+                  href = team_url(row$team),
+                  class = "directory-link compare-secondary-link",
+                  "相手校詳細へ"
+                )
+              }
+            )
+          )
+        })
+      )
+    )
+  },
   div(
     id = "league-peer-directory",
     class = "peer-directory-panel",
@@ -1466,6 +1616,7 @@ tagList(
     div(
       class = "section-rail-nav",
       tags$a(href = "#league-peer-directory", class = "section-rail-link", "同リーグ一覧"),
+      tags$a(href = "#compare-shortcuts", class = "section-rail-link", "比較ショートカット"),
       tags$a(href = "#year-archive", class = "section-rail-link", "年次アーカイブ"),
       tags$a(href = "#record-board", class = "section-rail-link", "記録ボード"),
       tags$a(href = "#year-summary", class = "section-rail-link", "年度別サマリー"),
@@ -1901,7 +2052,20 @@ if (nrow(league_year_context) > 0) {
             )
           }
         ),
-        team = colDef(show = FALSE),
+        team = colDef(
+          name = "比較",
+          minWidth = 108,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v, ri) {
+            row <- league_year_context[ri, ]
+            if (isTRUE(row$focus_team)) {
+              return(tags$span(class = "change-none", "表示中"))
+            }
+
+            compare_action(TEAM, v)
+          }
+        ),
         c1 = colDef(show = FALSE),
         focus_team = colDef(show = FALSE),
         peak_rank = colDef(show = FALSE),
@@ -2045,7 +2209,19 @@ if (nrow(opponent_summary) > 0) {
             )
           }
         ),
-        team_b = colDef(show = FALSE),
+        team_b = colDef(
+          name = "比較",
+          minWidth = 108,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v) {
+            if (is.na(v) || !(v %in% ranked_team_ids)) {
+              return(tags$span(class = "change-none", "比較不可"))
+            }
+
+            compare_action(TEAM, v)
+          }
+        ),
         c1_b = colDef(show = FALSE),
         losses = colDef(show = FALSE),
         draws = colDef(show = FALSE),

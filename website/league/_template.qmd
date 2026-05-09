@@ -71,6 +71,37 @@ league_url <- function(league, prefix = "../") {
   paste0(prefix, "league/", slug, ".html")
 }
 
+compare_url <- function(team1, team2, prefix = "../") {
+  if (
+    is.null(team1) || is.null(team2) ||
+      is.na(team1) || is.na(team2) ||
+      identical(team1, team2)
+  ) {
+    return("#")
+  }
+
+  paste0(
+    prefix,
+    "compare.html?team1=",
+    utils::URLencode(team1, reserved = TRUE),
+    "&team2=",
+    utils::URLencode(team2, reserved = TRUE)
+  )
+}
+
+compare_action <- function(team1, team2, label = "2校比較", prefix = "../") {
+  href <- compare_url(team1, team2, prefix = prefix)
+  if (href == "#") {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$a(
+    href = href,
+    class = "directory-link table-action-link",
+    label
+  )
+}
+
 league_team_info <- teams_info |> filter(LeagueName == LEAGUE)
 league_teams <- league_team_info$TeamShortName
 
@@ -80,6 +111,25 @@ league_ratings <- final_ratings |>
   left_join(
     teams_info |> select(TeamShortName, TeamName, c1),
     by = c("team" = "TeamShortName")
+  )
+
+leader_team <- if (nrow(league_ratings) > 0) league_ratings$team[[1]] else NA_character_
+leader_name <- if (nrow(league_ratings) > 0) league_ratings$TeamName[[1]] else NA_character_
+runner_up_team <- if (nrow(league_ratings) > 1) league_ratings$team[[2]] else NA_character_
+runner_up_name <- if (nrow(league_ratings) > 1) league_ratings$TeamName[[2]] else NA_character_
+
+league_ratings <- league_ratings |>
+  mutate(
+    compare_team = case_when(
+      !is.na(leader_team) & team != leader_team ~ leader_team,
+      !is.na(runner_up_team) & team == leader_team ~ runner_up_team,
+      TRUE ~ NA_character_
+    ),
+    compare_name = case_when(
+      !is.na(leader_team) & team != leader_team ~ leader_name,
+      !is.na(runner_up_name) & team == leader_team ~ runner_up_name,
+      TRUE ~ NA_character_
+    )
   )
 
 league_avg_display <- round(mean(league_ratings$display_rating), 1)
@@ -1604,7 +1654,21 @@ if (nrow(league_yearbook) > 0) {
             )
           }
         ),
-        team = colDef(show = FALSE),
+        team = colDef(
+          name = "比較",
+          minWidth = 108,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v) {
+            target_team <- if (!is.na(leader_team) && v != leader_team) {
+              leader_team
+            } else {
+              runner_up_team
+            }
+
+            compare_action(v, target_team)
+          }
+        ),
         c1 = colDef(show = FALSE),
         peak_date = colDef(show = FALSE),
         spring_end_rank = colDef(show = FALSE),
@@ -1776,7 +1840,18 @@ if (nrow(league_rivalry_summary) > 0) {
         ),
         pair_team2_name = colDef(show = FALSE),
         pair_team1 = colDef(show = FALSE),
-        pair_team2 = colDef(show = FALSE),
+        pair_team2 = colDef(
+          name = "比較",
+          minWidth = 108,
+          align = "center",
+          filterable = FALSE,
+          cell = function(v, ri) {
+            compare_action(
+              league_rivalry_summary$pair_team1[[ri]],
+              v
+            )
+          }
+        ),
         pair_team1_c1 = colDef(show = FALSE),
         pair_team2_c1 = colDef(show = FALSE),
         pair_team2_wins = colDef(show = FALSE),
@@ -1898,7 +1973,21 @@ div(
         align = "right",
         cell = function(v) tags$span(class = "rating-number", sprintf("%.1f", v))
       ),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 112,
+        align = "center",
+        cell = function(v, ri) {
+          row <- league_ratings[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(row$team, v, label = paste0("vs ", row$compare_name))
+        }
+      ),
       team = colDef(show = FALSE),
+      compare_name = colDef(show = FALSE),
       date = colDef(show = FALSE),
       rating = colDef(show = FALSE),
       c1 = colDef(show = FALSE)
