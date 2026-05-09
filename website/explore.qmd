@@ -67,6 +67,37 @@ league_url <- function(league, prefix = "") {
   paste0(prefix, "league/", slug, ".html")
 }
 
+compare_url <- function(team1, team2, prefix = "") {
+  if (
+    is.null(team1) || is.null(team2) ||
+      is.na(team1) || is.na(team2) ||
+      identical(team1, team2)
+  ) {
+    return("#")
+  }
+
+  paste0(
+    prefix,
+    "compare.html?team1=",
+    utils::URLencode(team1, reserved = TRUE),
+    "&team2=",
+    utils::URLencode(team2, reserved = TRUE)
+  )
+}
+
+compare_action <- function(team1, team2, label = "2校比較", prefix = "") {
+  href <- compare_url(team1, team2, prefix = prefix)
+  if (href == "#") {
+    return(tags$span(class = "change-none", "\u2014"))
+  }
+
+  tags$a(
+    href = href,
+    class = "directory-link table-action-link",
+    label
+  )
+}
+
 analysis_games <- game_results |>
   filter(gamedate <= Sys.Date())
 
@@ -159,6 +190,115 @@ university_directory <- current_teams |>
     gap_from_peak = round(current_rating - peak_rating, 1)
   ) |>
   arrange(current_rank)
+
+leader_row <- university_directory |> slice_head(n = 1)
+leader_team <- if (nrow(leader_row) > 0) leader_row$team[[1]] else NA_character_
+leader_name <- if (nrow(leader_row) > 0) leader_row$TeamName[[1]] else NA_character_
+leader_rating <- if (nrow(leader_row) > 0) leader_row$current_rating[[1]] else NA_real_
+
+runner_up_row <- if (nrow(university_directory) >= 2) {
+  university_directory |> slice(2)
+} else {
+  university_directory[0, ]
+}
+runner_up_team <- if (nrow(runner_up_row) > 0) runner_up_row$team[[1]] else NA_character_
+runner_up_name <- if (nrow(runner_up_row) > 0) runner_up_row$TeamName[[1]] else NA_character_
+runner_up_rating <- if (nrow(runner_up_row) > 0) runner_up_row$current_rating[[1]] else NA_real_
+
+adjacent_current_pairs <- university_directory |>
+  transmute(
+    team1 = team,
+    name1 = TeamName,
+    rank1 = current_rank,
+    rating1 = current_rating,
+    team2 = dplyr::lead(team),
+    name2 = dplyr::lead(TeamName),
+    rank2 = dplyr::lead(current_rank),
+    rating2 = dplyr::lead(current_rating),
+    rating_gap = abs(dplyr::lead(current_rating) - current_rating)
+  ) |>
+  filter(!is.na(team2)) |>
+  arrange(rating_gap, rank1)
+
+closest_pair <- adjacent_current_pairs |> slice_head(n = 1)
+
+peak_chaser <- university_directory |>
+  arrange(desc(peak_rating), desc(peak_date), current_rank) |>
+  filter(team != leader_team) |>
+  slice_head(n = 1)
+
+if (nrow(peak_chaser) == 0 && nrow(runner_up_row) > 0) {
+  peak_chaser <- runner_up_row
+}
+
+compare_shortcuts <- bind_rows(
+  if (nrow(leader_row) > 0 && nrow(runner_up_row) > 0) {
+    tibble(
+      label = "Current Top Two",
+      title = paste(leader_name, "vs", runner_up_name),
+      href = compare_url(leader_team, runner_up_team),
+      note = paste0(
+        "現在 #1 と #2 をそのまま比べる入口です。現在値の差は ",
+        sprintf("%.1f", abs(leader_rating - runner_up_rating)),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(closest_pair) > 0) {
+    tibble(
+      label = "Closest Race",
+      title = paste(closest_pair$name1[[1]], "vs", closest_pair$name2[[1]]),
+      href = compare_url(closest_pair$team1[[1]], closest_pair$team2[[1]]),
+      note = paste0(
+        "現在順位で最も差が小さい隣接ペアです。#",
+        closest_pair$rank1[[1]],
+        " と #",
+        closest_pair$rank2[[1]],
+        " の差は ",
+        sprintf("%.1f", closest_pair$rating_gap[[1]]),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  if (nrow(leader_row) > 0 && nrow(peak_chaser) > 0) {
+    tibble(
+      label = "Ceiling Check",
+      title = paste(leader_name, "vs", peak_chaser$TeamName[[1]]),
+      href = compare_url(leader_team, peak_chaser$team[[1]]),
+      note = paste0(
+        "現在首位と、歴代ピークが高い大学を並べる比較です。相手校の歴代ピークは ",
+        sprintf("%.1f", peak_chaser$peak_rating[[1]]),
+        " です。"
+      )
+    )
+  } else {
+    tibble()
+  },
+  tibble(
+    label = "Custom Desk",
+    title = "2校を自由に選んで比較する",
+    href = "compare.html",
+    note = "比較ページで任意の2校を選び、現在値、年度別終点、直接対戦を同じ画面で確認できます。"
+  )
+)
+
+university_directory <- university_directory |>
+  mutate(
+    compare_team = case_when(
+      !is.na(leader_team) & team != leader_team ~ leader_team,
+      !is.na(runner_up_team) & team == leader_team ~ runner_up_team,
+      TRUE ~ NA_character_
+    ),
+    compare_label = case_when(
+      !is.na(leader_team) & team != leader_team ~ paste0("vs ", leader_team),
+      !is.na(runner_up_team) & team == leader_team ~ paste0("vs ", runner_up_team),
+      TRUE ~ NA_character_
+    )
+  )
 
 league_current <- current_teams |>
   group_by(LeagueName) |>
@@ -441,6 +581,7 @@ tagList(
     div(
       class = "anchor-nav",
       tags$a(href = "#navigation-paths", class = "anchor-link", "導線"),
+      tags$a(href = "#compare-start", class = "anchor-link", "比較開始"),
       tags$a(href = "#league-directory", class = "anchor-link", "リーグ一覧"),
       tags$a(href = "#university-directory", class = "anchor-link", "大学一覧")
     ),
@@ -532,6 +673,37 @@ div(
     div(class = "directory-structure-note", "年度別の終点、ピーク、アップセット記録を歴史ページで横断比較します。")
   )
 )
+```
+
+## 比較を始める {#compare-start}
+
+<div class="copy-shell">
+  <p class="section-lead">一覧ページを「対象を探すだけの場所」ではなく、比較の出発点として使えるようにしました。現在の上位争い、最接戦の組み合わせ、歴代ピークとの対比から、そのまま 2 校比較へ入れます。</p>
+  <p class="record-note">上の表示年度は比較ページにも引き継がれます。</p>
+</div>
+
+```{r compare-launchpad}
+if (nrow(compare_shortcuts) > 0) {
+  div(
+    class = "compare-shortcut-grid",
+    lapply(seq_len(nrow(compare_shortcuts)), function(i) {
+      row <- compare_shortcuts[i, ]
+
+      div(
+        class = "compare-shortcut-card",
+        div(class = "compare-shortcut-label", row$label),
+        tags$a(
+          href = row$href,
+          class = "compare-shortcut-title",
+          row$title
+        ),
+        div(class = "compare-shortcut-note", row$note)
+      )
+    })
+  )
+} else {
+  div(class = "copy-shell", tags$p("表示できる比較ショートカットがありません。"))
+}
 ```
 
 ## リーグ一覧 {#league-directory}
@@ -710,8 +882,27 @@ div(
         filterable = FALSE,
         cell = function(v) gap_cell(v)
       ),
+      compare_team = colDef(
+        name = "比較",
+        minWidth = 118,
+        align = "center",
+        filterable = FALSE,
+        cell = function(v, ri) {
+          row <- university_directory[ri, ]
+          if (is.na(v)) {
+            return(tags$span(class = "change-none", "\u2014"))
+          }
+
+          compare_action(
+            row$team,
+            v,
+            label = row$compare_label[[1]]
+          )
+        }
+      ),
       team = colDef(show = FALSE),
       c1 = colDef(show = FALSE),
+      compare_label = colDef(show = FALSE),
       best_season_rating = colDef(show = FALSE),
       best_season_end = colDef(show = FALSE)
     )
