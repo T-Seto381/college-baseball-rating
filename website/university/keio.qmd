@@ -81,6 +81,60 @@ current_rating <- if (nrow(team_row) > 0) team_row$display_rating[[1]] else NA_r
 current_rank <- if (nrow(team_row) > 0) team_row$rank[[1]] else NA_integer_
 total_teams <- nrow(all_ranked)
 
+league_current_table <- all_ranked |>
+  left_join(
+    teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
+    by = c("team" = "TeamShortName")
+  ) |>
+  filter(LeagueName == league_name, !is.na(TeamName)) |>
+  arrange(desc(display_rating), rank) |>
+  mutate(league_rank = row_number())
+
+league_team_count <- nrow(league_current_table)
+league_avg_display <- if (league_team_count > 0) {
+  round(mean(league_current_table$display_rating), 1)
+} else {
+  NA_real_
+}
+
+league_rank_pos <- league_current_table |>
+  filter(team == TEAM) |>
+  pull(league_rank)
+
+if (length(league_rank_pos) == 0) {
+  league_rank_pos <- NA_integer_
+}
+
+league_leader <- league_current_table |> slice_head(n = 1)
+peer_above <- if (!is.na(league_rank_pos) && league_rank_pos > 1) {
+  league_current_table |> slice(league_rank_pos - 1)
+} else {
+  league_current_table[0, ]
+}
+peer_below <- if (!is.na(league_rank_pos) && league_rank_pos < league_team_count) {
+  league_current_table |> slice(league_rank_pos + 1)
+} else {
+  league_current_table[0, ]
+}
+
+gap_from_league_avg <- if (!is.na(current_rating) && !is.na(league_avg_display)) {
+  round(current_rating - league_avg_display, 1)
+} else {
+  NA_real_
+}
+
+gap_to_above <- if (!is.na(current_rating) && nrow(peer_above) > 0) {
+  round(peer_above$display_rating[[1]] - current_rating, 1)
+} else {
+  NA_real_
+}
+
+gap_to_below <- if (!is.na(current_rating) && nrow(peer_below) > 0) {
+  round(current_rating - peer_below$display_rating[[1]], 1)
+} else {
+  NA_real_
+}
+
 current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
 available_yrs <- sort(unique(year(
   game_results$gamedate[
@@ -486,6 +540,24 @@ upset_loss_note <- if (nrow(top_upset_loss) > 0) {
   "該当試合なし"
 }
 
+league_rank_value <- if (!is.na(league_rank_pos) && league_team_count > 0) {
+  paste0("#", league_rank_pos, " / ", league_team_count)
+} else {
+  "集計中"
+}
+
+league_gap_value <- if (!is.na(gap_from_league_avg)) {
+  sprintf("%+.1f", gap_from_league_avg)
+} else {
+  "-"
+}
+
+league_gap_note <- if (!is.na(league_avg_display)) {
+  paste0("リーグ平均 ", sprintf("%.1f", league_avg_display))
+} else {
+  "比較対象なし"
+}
+
 tagList(
   div(
     class = "detail-panel",
@@ -560,6 +632,69 @@ tagList(
     tags$script(HTML(hero_script))
   ),
   div(
+    class = "comparison-glance-grid",
+    div(
+      class = "comparison-glance-card comparison-glance-card-emphasis",
+      div(class = "comparison-glance-label", "同リーグ現在位置"),
+      div(class = "comparison-glance-value", league_rank_value),
+      div(
+        class = "comparison-glance-note",
+        tags$a(href = league_url(league_name), class = "team-link-inline", league_name),
+        " の現在比較"
+      )
+    ),
+    div(
+      class = "comparison-glance-card",
+      div(class = "comparison-glance-label", "リーグ平均との差"),
+      div(class = "comparison-glance-value", league_gap_value),
+      div(class = "comparison-glance-note", league_gap_note)
+    ),
+    div(
+      class = "comparison-glance-card",
+      div(class = "comparison-glance-label", "一つ上の比較相手"),
+      if (nrow(peer_above) > 0) {
+        tags$a(
+          href = team_url(peer_above$team[[1]]),
+          class = "comparison-glance-value comparison-link",
+          style = paste0("color:", peer_above$c1[[1]]),
+          peer_above$TeamName[[1]]
+        )
+      } else {
+        div(class = "comparison-glance-value", "リーグ先頭")
+      },
+      if (nrow(peer_above) > 0) {
+        div(
+          class = "comparison-glance-note",
+          paste0("差 ", sprintf("%.1f", gap_to_above), " / レート ", sprintf("%.1f", peer_above$display_rating[[1]]))
+        )
+      } else {
+        div(class = "comparison-glance-note", "現在このリーグで最上位です。")
+      }
+    ),
+    div(
+      class = "comparison-glance-card",
+      div(class = "comparison-glance-label", "一つ下の比較相手"),
+      if (nrow(peer_below) > 0) {
+        tags$a(
+          href = team_url(peer_below$team[[1]]),
+          class = "comparison-glance-value comparison-link",
+          style = paste0("color:", peer_below$c1[[1]]),
+          peer_below$TeamName[[1]]
+        )
+      } else {
+        div(class = "comparison-glance-value", "リーグ末尾")
+      },
+      if (nrow(peer_below) > 0) {
+        div(
+          class = "comparison-glance-note",
+          paste0("差 ", sprintf("%.1f", gap_to_below), " / レート ", sprintf("%.1f", peer_below$display_rating[[1]]))
+        )
+      } else {
+        div(class = "comparison-glance-note", "この下に比較相手はいません。")
+      }
+    )
+  ),
+  div(
     class = "history-snapshot-grid",
     div(
       class = "history-snapshot-card",
@@ -584,6 +719,33 @@ tagList(
       div(class = "history-snapshot-label", "最大番狂わせ敗戦"),
       div(class = "history-snapshot-value", upset_loss_value),
       div(class = "history-snapshot-note", upset_loss_note)
+    )
+  ),
+  div(
+    class = "route-grid",
+    tags$a(
+      href = "../explore.html",
+      class = "route-card",
+      div(class = "route-label", "Browse Layer"),
+      div(class = "route-title", "大学・リーグ一覧へ"),
+      div(class = "route-copy", "現在値と歴代ピークを並べた索引ページから、他大学や別導線へ移動できます。"),
+      div(class = "route-link", "一覧ページへ →")
+    ),
+    tags$a(
+      href = league_url(league_name),
+      class = "route-card",
+      div(class = "route-label", "League View"),
+      div(class = "route-title", paste0(league_name, " の年鑑へ")),
+      div(class = "route-copy", "この大学をリーグ全体の年度推移や記録ボードの中で見直すための入口です。"),
+      div(class = "route-link", "リーグ比較へ →")
+    ),
+    tags$a(
+      href = "../history.html",
+      class = "route-card route-card-emphasis",
+      div(class = "route-label", "Historical Archive"),
+      div(class = "route-title", "歴史と記録へ"),
+      div(class = "route-copy", "大学横断の終点首位、歴代ピーク、最大アップセットと合わせて位置づけを確認できます。"),
+      div(class = "route-link", "全体アーカイブへ →")
     )
   ),
   div(
