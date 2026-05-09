@@ -712,6 +712,7 @@ year_focus <- tibble(yr = as.character(available_yrs)) |>
   )
 
 year_focus_json <- jsonlite::toJSON(year_focus, dataframe = "rows", auto_unbox = TRUE)
+available_years_json <- jsonlite::toJSON(as.character(available_yrs), auto_unbox = FALSE)
 
 default_focus <- year_focus |>
   filter(yr == default_yr) |>
@@ -796,6 +797,7 @@ hero_script <- glue::glue(
   (function() {{
     const targets = {search_targets_json};
     const yearFocus = {year_focus_json};
+    const availableYears = {available_years_json};
     const defaultYear = '{default_yr}';
     const plotSelector = '#league-rating-chart .plotly, #league-rating-chart .js-plotly-plot';
     const tableFilters = [
@@ -892,6 +894,50 @@ hero_script <- glue::glue(
       bindText('upset-note', summary.upset_note);
     }}
 
+    function resolveYearAction(action, currentYear) {{
+      if (action === 'latest') {{
+        return availableYears.length ? availableYears[0] : defaultYear;
+      }}
+      if (action === 'all') {{
+        return 'all';
+      }}
+      if (currentYear === 'all') {{
+        return null;
+      }}
+
+      const index = availableYears.indexOf(String(currentYear));
+      if (index === -1) {{
+        return null;
+      }}
+
+      if (action === 'newer') {{
+        return index > 0 ? availableYears[index - 1] : null;
+      }}
+      if (action === 'older') {{
+        return index < availableYears.length - 1 ? availableYears[index + 1] : null;
+      }}
+
+      return null;
+    }}
+
+    function updateYearStepper(year) {{
+      const label = year === 'all' ? '全期間' : year + '年';
+      const note =
+        year === 'all'
+          ? '通年ビューでリーグ全体の歴史を確認'
+          : year + '年の年鑑表と試合へ固定';
+
+      bindText('stepper-label', label);
+      bindText('stepper-note', note);
+
+      document.querySelectorAll('[data-year-step]').forEach(function(button) {{
+        const targetYear = resolveYearAction(button.getAttribute('data-year-step'), year);
+        const isDisabled = !targetYear || targetYear === String(year);
+        button.disabled = isDisabled;
+        button.setAttribute('aria-disabled', isDisabled ? 'true' : 'false');
+      }});
+    }}
+
     function syncYearCards(year) {{
       document.querySelectorAll('[data-year-card]').forEach(function(button) {{
         const active = button.getAttribute('data-year-card') === String(year);
@@ -903,6 +949,7 @@ hero_script <- glue::glue(
     function applyYear(year) {{
       syncYear(year);
       renderFocus(year);
+      updateYearStepper(year);
       syncYearCards(year);
       const filterValue = year === 'all' ? void 0 : year;
 
@@ -998,6 +1045,18 @@ hero_script <- glue::glue(
           applyYear(button.getAttribute('data-year-card'));
         }});
       }});
+
+      document.querySelectorAll('[data-year-step]').forEach(function(button) {{
+        button.addEventListener('click', function() {{
+          const targetYear = resolveYearAction(
+            button.getAttribute('data-year-step'),
+            getSelectedYear()
+          );
+          if (targetYear) {{
+            applyYear(targetYear);
+          }}
+        }});
+      }});
     }});
   }})();
   "
@@ -1028,6 +1087,18 @@ coverage_label <- if (!is.na(coverage_start) && !is.na(coverage_end)) {
 tagList(
   div(
     class = "detail-panel",
+    div(
+      class = "detail-breadcrumbs",
+      div(class = "detail-breadcrumb-label", "Browse Path"),
+      div(
+        class = "detail-breadcrumbs-row",
+        tags$a(href = "../index.html", class = "detail-breadcrumb-link", "現在の順位"),
+        tags$span(class = "detail-breadcrumb-sep", "/"),
+        tags$a(href = "../explore.html", class = "detail-breadcrumb-link", "大学・リーグ一覧"),
+        tags$span(class = "detail-breadcrumb-sep", "/"),
+        tags$span(class = "detail-breadcrumb-current", LEAGUE)
+      )
+    ),
     div(
       class = "detail-toolbar",
       div(
@@ -1101,6 +1172,34 @@ tagList(
         div(class = "summary-label", "対象期間"),
         div(class = "summary-value", year_range_label),
         div(class = "stat-note", coverage_label)
+      )
+    ),
+    div(
+      class = "detail-year-stepper",
+      div(
+        class = "detail-year-stepper-head",
+        div(class = "control-label", "Quick Year Jumps"),
+        div(
+          class = "detail-year-stepper-current",
+          `data-league-bind` = "stepper-label",
+          ifelse(default_focus$yr[[1]] == "all", "全期間", paste0(default_focus$yr[[1]], "年"))
+        ),
+        div(
+          class = "detail-year-stepper-note",
+          `data-league-bind` = "stepper-note",
+          ifelse(
+            default_focus$yr[[1]] == "all",
+            "通年ビューでリーグ全体の歴史を確認",
+            paste0(default_focus$yr[[1]], "年の年鑑表と試合へ固定")
+          )
+        )
+      ),
+      div(
+        class = "detail-year-stepper-controls",
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "latest", "最新年"),
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "newer", "新しい年"),
+        tags$button(class = "detail-year-button", type = "button", `data-year-step` = "older", "古い年"),
+        tags$button(class = "detail-year-button detail-year-button-secondary", type = "button", `data-year-step` = "all", "全期間")
       )
     ),
     div(
