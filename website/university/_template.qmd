@@ -60,14 +60,17 @@ global_mean <- mean(rating_hist$rating)
 global_sd   <- sd(rating_hist$rating)
 to_disp <- function(r) round(50 + 10 * (r - global_mean) / global_sd, 1)
 
-# デフォルト表示年度（このチームで最新の試合がある年）
+# デフォルト表示年度（未来の試合を除いた最新年）
 available_yrs <- sort(unique(year(
-  game_results$gamedate[game_results$team1 == TEAM | game_results$team2 == TEAM]
+  game_results$gamedate[
+    (game_results$team1 == TEAM | game_results$team2 == TEAM) &
+    game_results$gamedate <= Sys.Date()
+  ]
 )), decreasing = TRUE)
 default_yr <- if (length(available_yrs) > 0) as.character(available_yrs[1]) else as.character(current_year)
 
-# 過去統計（全期間）
-team_hist_all <- rating_hist |> filter(team == TEAM) |> arrange(date)
+# 過去統計（2001年以降: 2000年は全チーム1500スタートのため除外）
+team_hist_all <- rating_hist |> filter(team == TEAM, year(date) >= 2001) |> arrange(date)
 stats_max <- if (nrow(team_hist_all) > 0) round(max(team_hist_all$display_rating), 1) else NA
 stats_min <- if (nrow(team_hist_all) > 0) round(min(team_hist_all$display_rating), 1) else NA
 stats_avg <- if (nrow(team_hist_all) > 0) round(mean(team_hist_all$display_rating), 1) else NA
@@ -80,41 +83,49 @@ season_bg_df <- game_results |>
   summarise(bg_start = min(gamedate), bg_end = max(gamedate), .groups = "drop") |>
   mutate(bg_fill = if_else(season == "春", "rgba(0,160,80,0.07)", "rgba(200,0,50,0.07)"))
 
-# シーズン終了時レート
+# シーズン終了時レート（map_dbl で確実にルックアップ）
 season_end <- game_results |>
   filter(team1 == TEAM | team2 == TEAM) |>
   mutate(yr_val = year(gamedate)) |>
   group_by(yr_val, season) |>
   summarise(end_date = max(gamedate), .groups = "drop") |>
-  left_join(
-    rating_hist |> filter(team == TEAM) |> select(date, display_rating),
-    by = c("end_date" = "date")
-  ) |>
+  filter(end_date <= Sys.Date()) |>
+  mutate(display_rating = map_dbl(end_date, function(d) {
+    r <- rating_hist |> filter(team == TEAM, date <= d) |> slice_tail(n = 1)
+    if (nrow(r) == 0) NA_real_ else r$display_rating
+  })) |>
   filter(!is.na(display_rating)) |>
   arrange(desc(yr_val), desc(season == "秋")) |>
   mutate(label = paste0(yr_val, " ", season), rating = round(display_rating, 1)) |>
   select(label, rating)
 ```
 
-<!-- ヘッダー (チームカラー accent bar) -->
-<div style="border-left: 8px solid `r c1`; padding-left: 18px; margin-bottom: 40px; padding-top: 28px; padding-bottom: 22px; border-bottom: 1px solid #E8E8E8; background: linear-gradient(to right, `r paste0(c1, '20')`, transparent);">
-  <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+```{r header}
+#| output: asis
+rank_str   <- if (!is.na(current_rank)) paste0("全国 ", current_rank, " 位 / ", total_teams, " チーム") else "集計中"
+rate_str   <- if (!is.na(current_rating)) as.character(current_rating) else "-"
+league_url <- if (league_name %in% names(LEAGUE_SLUG)) paste0("../league/", LEAGUE_SLUG[[league_name]], ".html") else "#"
+cat(sprintf(
+  '<div style="border-left:8px solid %s;padding-left:18px;margin-bottom:40px;padding-top:28px;padding-bottom:22px;border-bottom:1px solid #E8E8E8;background:linear-gradient(to right,%s20,transparent);">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;">
     <div>
-      <div style="font-size:2.1rem; font-weight:900; letter-spacing:-0.04em; line-height:1; color:`r c1`; margin-bottom:7px;">`r team_full_name`</div>
-      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em;">
-        <a href="../league/`r LEAGUE_SLUG[league_name]`.html"
-           style="color:#6B6B6B; text-decoration:none;">`r league_name`</a>
+      <div style="font-size:2.1rem;font-weight:900;letter-spacing:-0.04em;line-height:1;color:%s;margin-bottom:7px;">%s</div>
+      <div style="font-size:0.7rem;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.1em;">
+        <a href="%s" style="color:#6B6B6B;text-decoration:none;">%s</a>
       </div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:0.7rem; color:#6B6B6B; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:3px;">
-        `r if (!is.na(current_rank)) paste0("全国 ", current_rank, " 位 / ", total_teams, " チーム") else "集計中"`
-      </div>
-      <div style="font-size:2.7rem; font-weight:900; letter-spacing:-0.05em; line-height:1; color:`r c1`;">`r if (!is.na(current_rating)) current_rating else "-"`</div>
-      <div style="font-size:0.67rem; color:#AAAAAA; text-transform:uppercase; letter-spacing:0.1em; margin-top:3px;">レート</div>
+      <div style="font-size:0.7rem;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;">%s</div>
+      <div style="font-size:2.7rem;font-weight:900;letter-spacing:-0.05em;line-height:1;color:%s;">%s</div>
+      <div style="font-size:0.67rem;color:#AAAAAA;text-transform:uppercase;letter-spacing:0.1em;margin-top:3px;">レート</div>
     </div>
   </div>
-</div>
+</div>',
+  c1, c1, c1, team_full_name,
+  league_url, league_name,
+  rank_str, c1, rate_str
+))
+```
 
 ```{r stats-row}
 #| output: asis
@@ -180,6 +191,8 @@ if (nrow(team_hist) > 0) {
       zeroline  = FALSE,
       rangebreaks = rb,
       tickangle = -45,
+      tickformat = "%Y/%m",
+      nticks = 12,
       rangeselector = list(
         buttons = list(
           list(count = 1, label = "今年", step = "year", stepmode = "todate"),
@@ -191,11 +204,35 @@ if (nrow(team_hist) > 0) {
     ),
     yaxis  = list(title = "レート", gridcolor = "#EBEBEB", zeroline = FALSE),
     shapes = season_shapes,
-    margin = list(l = 60, r = 20, t = 20, b = 60),
+    margin = list(l = 60, r = 20, t = 20, b = 80),
     paper_bgcolor = "white",
     plot_bgcolor  = "white",
     font = list(family = "Inter, Helvetica Neue, sans-serif")
-  )
+  ) |> htmlwidgets::onRender('
+    function(el) {
+      var skip = false;
+      function updateDtick() {
+        var layout = el.layout;
+        if (!layout || !layout.xaxis || !layout.xaxis.range) return;
+        var r = layout.xaxis.range;
+        var span = Math.abs(new Date(r[1]) - new Date(r[0]));
+        var DAY = 86400000;
+        var dtick, fmt;
+        if (span > 3 * 365 * DAY) { dtick = "M12"; fmt = "%Y";    }
+        else if (span > 90 * DAY) { dtick = "M1";  fmt = "%Y/%m"; }
+        else                      { dtick = DAY;   fmt = "%m/%d"; }
+        skip = true;
+        Plotly.relayout(el, {"xaxis.dtick": dtick, "xaxis.tickformat": fmt});
+      }
+      el.on("plotly_relayout", function(ed) {
+        if (skip) { skip = false; return; }
+        if (ed["xaxis.range[0]"] !== undefined || ed["xaxis.range"] !== undefined) {
+          updateDtick();
+        }
+      });
+      setTimeout(updateDtick, 300);
+    }
+  ')
 } else {
   cat('<p style="color:#AAA; font-style:italic; font-size:0.85rem;">試合データがありません。</p>')
 }

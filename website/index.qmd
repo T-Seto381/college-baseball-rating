@@ -97,7 +97,7 @@ if (nrow(today_games) == 0) {
 } else {
   today_label <- paste0("本日の試合 (", format(today_date, "%Y年%m月%d日"), ")")
 }
-current_year <- max(year(game_results$gamedate))
+current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
 
 # ゲーム時レート → 偏差値スケール変換
 global_mean <- mean(rating_hist$rating)
@@ -202,59 +202,69 @@ reactable(
 )
 ```
 
-## 年度別ランキング
+## シーズン終了時ランキング
 
-```{r yearly-ranking}
-# 各年の最終試合時点でのレーティング
-yr_rank_data <- rating_hist |>
-  mutate(yr = as.character(year(date))) |>
-  filter(as.integer(yr) <= year(Sys.Date())) |>
-  group_by(yr, team) |>
-  slice_tail(n = 1) |>
-  ungroup() |>
-  group_by(yr) |>
-  arrange(desc(display_rating)) |>
-  mutate(yr_rank = row_number()) |>
-  ungroup() |>
+```{r season-ranking}
+# 全シーズン終了時点でのレーティングランキング（2001年以降）
+season_ends <- game_results |>
+  group_by(yr_val = year(gamedate), season) |>
+  summarise(end_date = max(gamedate), .groups = "drop") |>
+  filter(end_date <= Sys.Date(), yr_val >= 2001) |>
+  arrange(desc(yr_val), desc(season == "秋"))
+
+season_rank_data <- season_ends |>
+  mutate(season_label = paste0(yr_val, " ", season)) |>
+  mutate(ratings = map(end_date, function(d) {
+    rating_hist |>
+      filter(date <= d) |>
+      group_by(team) |>
+      slice_tail(n = 1) |>
+      ungroup() |>
+      select(team, display_rating)
+  })) |>
+  unnest(ratings) |>
   left_join(teams_info |> select(TeamShortName, TeamName, LeagueName, c1),
             by = c("team" = "TeamShortName")) |>
   filter(!is.na(TeamName)) |>
+  group_by(season_label) |>
+  mutate(s_rank = rank(desc(display_rating), ties.method = "min")) |>
+  ungroup() |>
+  arrange(desc(yr_val), desc(season == "秋"), s_rank) |>
   mutate(display_rating = round(display_rating, 1)) |>
-  select(yr, yr_rank, team, TeamName, LeagueName, c1, display_rating)
+  select(season_label, s_rank, team, TeamName, LeagueName, c1, display_rating)
 
-yr_default_home <- as.character(max(as.integer(unique(yr_rank_data$yr))))
+season_default <- season_rank_data$season_label[1]
 
 tagList(
   reactable(
-    yr_rank_data,
+    season_rank_data,
     filterable      = TRUE,
     defaultPageSize = 10,
     highlight       = TRUE,
     columns = list(
-      yr = colDef(
-        name  = "年度",
-        width = 80,
+      season_label = colDef(
+        name  = "シーズン",
+        width = 100,
         align = "center",
-        show  = FALSE,
         filterMethod = JS("(rows, columnId, filterValue) => {
           if (!filterValue) return rows;
           return rows.filter(row => String(row.values[columnId]) === filterValue);
         }"),
         filterInput = function(values, name) {
-          yrs <- sort(unique(values), decreasing = TRUE)
+          opts <- unique(values)
           tags$select(
             style    = "font-size:0.85rem; padding:4px 8px; margin-bottom:4px;",
             onchange = sprintf(
-              "Reactable.setFilter('yr-ranking', '%s', event.target.value || undefined)", name
+              "Reactable.setFilter('season-ranking', '%s', event.target.value || undefined)", name
             ),
-            lapply(yrs, function(y) {
-              opt <- tags$option(value = y, paste0(y, "年"))
-              if (y == yr_default_home) tagAppendAttributes(opt, selected = NA) else opt
+            lapply(opts, function(o) {
+              opt <- tags$option(value = o, o)
+              if (o == season_default) tagAppendAttributes(opt, selected = NA) else opt
             })
           )
         }
       ),
-      yr_rank = colDef(
+      s_rank = colDef(
         name  = "順位",
         width = 58,
         align = "center",
@@ -264,7 +274,7 @@ tagList(
         name     = "チーム",
         minWidth = 140,
         cell     = function(v, ri) {
-          row <- yr_rank_data[ri, ]
+          row <- season_rank_data[ri, ]
           tags$div(
             class = "team-name-cell",
             tags$div(class = "team-color-bar", style = paste0("background:", row$c1)),
@@ -294,11 +304,11 @@ tagList(
       c1   = colDef(show = FALSE),
       team = colDef(show = FALSE)
     ),
-    elementId = "yr-ranking"
+    elementId = "season-ranking"
   ),
   tags$script(HTML(sprintf(
-    '(function poll(){if(window.Reactable){Reactable.setFilter("yr-ranking","yr","%s");}else{setTimeout(poll,50);}})();',
-    yr_default_home
+    '(function poll(){if(window.Reactable){Reactable.setFilter("season-ranking","season_label","%s");}else{setTimeout(poll,50);}})();',
+    season_default
   )))
 )
 ```
