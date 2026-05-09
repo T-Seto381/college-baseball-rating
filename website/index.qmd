@@ -720,6 +720,7 @@ tagList(
       class = "anchor-nav",
       tags$a(href = "#theme-map", class = "anchor-link", "見るテーマ"),
       tags$a(href = "#year-quick-view", class = "anchor-link", "年度クイックビュー"),
+      tags$a(href = "#historical-lenses", class = "anchor-link", "歴史から探す"),
       tags$a(href = "#current-view", class = "anchor-link", "大学ランキング"),
       tags$a(href = "#highlight-games", class = "anchor-link", "注目試合"),
       tags$a(href = "#season-end-view", class = "anchor-link", "シーズン終点")
@@ -814,6 +815,76 @@ div(
   )
 )
 ```
+
+<div class="section-rail section-rail-home">
+  <div class="section-rail-head">
+    <div class="control-label">Home Navigator</div>
+    <div class="section-rail-year" data-home-bind="year-label">`r paste0(default_focus$yr[[1]], "年")`</div>
+    <div class="section-rail-note">ホーム上の導線を保ったまま、選択年度の要約と現在順位、注目試合、シーズン終点、歴史アーカイブを行き来できます。</div>
+  </div>
+  <div class="section-rail-nav">
+    <a href="#historical-lenses" class="section-rail-link">歴史から探す</a>
+    <a href="#current-view" class="section-rail-link">大学ランキング</a>
+    <a href="#highlight-games" class="section-rail-link">注目試合</a>
+    <a href="#season-end-view" class="section-rail-link">シーズン終点</a>
+    <a href="explore.html" class="section-rail-link">一覧ページ</a>
+    <a href="history.html" class="section-rail-link">歴史アーカイブ</a>
+  </div>
+</div>
+
+## 歴史から探す {#historical-lenses}
+
+<div class="copy-shell">
+  <p class="section-lead">ホームでも、年ごとの強さや歴史上の出来事を問いベースで追えるようにしました。全国展開後も同じ問いをリーグ横断で使える前提で、現在の入口を整理しています。</p>
+  <p class="record-note">下の答えは上の表示年度に連動し、詳細リンク先でも年度選択を引き継ぎます。</p>
+</div>
+
+<div class="question-grid">
+  <article class="question-card">
+    <div class="question-kicker">Season Leaders</div>
+    <h3 class="question-title"><span data-home-bind="year-label">`r paste0(default_focus$yr[[1]], "年")`</span>の終点で最も強かった大学は?</h3>
+    <div class="question-answer-stack">
+      <div class="question-answer-row">
+        <span class="question-answer-label">春</span>
+        <span class="question-answer-value" data-home-bind="spring-title">`r default_focus$spring_title[[1]]`</span>
+      </div>
+      <div class="question-answer-row">
+        <span class="question-answer-label">秋</span>
+        <span class="question-answer-value" data-home-bind="fall-title">`r default_focus$fall_title[[1]]`</span>
+      </div>
+    </div>
+    <div class="question-note-stack">
+      <div class="question-note" data-home-bind="spring-note">`r default_focus$spring_note[[1]]`</div>
+      <div class="question-note" data-home-bind="fall-note">`r default_focus$fall_note[[1]]`</div>
+    </div>
+    <div class="directory-link-row">
+      <a href="history.html#season-leaders" class="directory-link">終点首位一覧へ</a>
+      <a href="league/tokyo6.html#league-yearbook" class="directory-link">リーグ年鑑へ</a>
+    </div>
+  </article>
+  <article class="question-card question-card-emphasis">
+    <div class="question-kicker">Peak Finder</div>
+    <h3 class="question-title">その年のピークは誰がいつ作ったか?</h3>
+    <div class="question-answer" data-home-bind="peak-title">`r default_focus$peak_title[[1]]`</div>
+    <div class="question-note" data-home-bind="peak-note">`r default_focus$peak_note[[1]]`</div>
+    <p class="question-copy">一時的な最高到達点と春秋の終点は分けて見られるようにし、今後の大学追加やリーグ追加でも同じ比較軸を保ちます。</p>
+    <div class="directory-link-row">
+      <a href="history.html#year-archive" class="directory-link">年次アーカイブへ</a>
+      <a href="history.html#team-peaks" class="directory-link">大学別ピークへ</a>
+    </div>
+  </article>
+  <article class="question-card">
+    <div class="question-kicker">Upset Lens</div>
+    <h3 class="question-title">最大の番狂わせはどこで起きたか?</h3>
+    <div class="question-answer" data-home-bind="upset-title">`r default_focus$upset_title[[1]]`</div>
+    <div class="question-note" data-home-bind="upset-note">`r default_focus$upset_note[[1]]`</div>
+    <p class="question-copy">歴史ページでは全期間の番狂わせ記録まで掘り下げられます。ホームではまず年度単位の入口として表示します。</p>
+    <div class="directory-link-row">
+      <a href="history.html#record-board" class="directory-link">記録ボードへ</a>
+      <a href="history.html#upsets" class="directory-link">アップセット一覧へ</a>
+    </div>
+  </article>
+</div>
 
 <div id="current-view"></div>
 
