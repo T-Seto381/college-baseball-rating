@@ -46,30 +46,6 @@ default_leagues <- current_league_table |>
 default_start_year <- current_year
 default_end_year <- current_year
 
-build_rangebreaks <- function(date_values) {
-  dates <- sort(unique(as.Date(date_values)))
-
-  if (length(dates) < 2) {
-    return(list())
-  }
-
-  skipped <- as.Date(character())
-
-  for (i in 2:length(dates)) {
-    gap_days <- as.integer(dates[[i]] - dates[[i - 1]])
-    if (gap_days > 1) {
-      gap_dates <- seq(dates[[i - 1]] + 1, dates[[i]] - 1, by = "day")
-      skipped <- c(skipped, gap_dates)
-    }
-  }
-
-  if (length(skipped) == 0) {
-    return(list())
-  }
-
-  list(list(values = format(skipped, "%Y-%m-%d")))
-}
-
 build_team_plot <- function(selected_teams, start_year, end_year) {
   plot_df <- team_series |>
     filter(team %in% selected_teams, year >= start_year, year <= end_year)
@@ -90,26 +66,12 @@ build_team_plot <- function(selected_teams, start_year, end_year) {
     )
   }
 
-  plot_ly(
-    plot_df,
-    x = ~event_datetime,
-    y = ~rating,
-    color = ~TeamName,
-    colors = setNames(plot_df$color, plot_df$TeamName),
-    type = "scatter",
-    mode = "lines+markers",
-    marker = list(size = 5),
-    hovertemplate = "%{x|%Y/%m/%d}<br>%{fullData.name}: %{y:.1f}<extra></extra>"
-  ) |>
+  plot_ly() |>
     layout(
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(255,255,255,0.96)",
       margin = list(l = 48, r = 20, t = 20, b = 44),
-      xaxis = list(
-        title = "",
-        tickformat = "%Y/%m",
-        rangebreaks = build_rangebreaks(plot_df$date_key)
-      ),
+      xaxis = list(title = ""),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
     ) |>
@@ -136,25 +98,12 @@ build_league_plot <- function(selected_leagues, start_year, end_year) {
     )
   }
 
-  plot_ly(
-    plot_df,
-    x = ~event_datetime,
-    y = ~rating,
-    color = ~league,
-    type = "scatter",
-    mode = "lines+markers",
-    marker = list(size = 5),
-    hovertemplate = "%{x|%Y/%m/%d}<br>%{fullData.name}: %{y:.1f}<extra></extra>"
-  ) |>
+  plot_ly() |>
     layout(
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(255,255,255,0.96)",
       margin = list(l = 48, r = 20, t = 20, b = 44),
-      xaxis = list(
-        title = "",
-        tickformat = "%Y/%m",
-        rangebreaks = build_rangebreaks(plot_df$date_key)
-      ),
+      xaxis = list(title = ""),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
     ) |>
@@ -244,23 +193,125 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
       const rows = data.rows || [];
       const defaultIds = data.defaultIds || [];
 
+      function parseDateKey(value) {
+        return new Date(value + 'T00:00:00');
+      }
+
+      function formatTickLabel(date, singleYear) {
+        const year = String(date.getFullYear());
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return singleYear ? (month + '/' + day) : (year + '/' + month);
+      }
+
+      function addMonths(date, count) {
+        const next = new Date(date.getTime());
+        next.setMonth(next.getMonth() + count);
+        return next;
+      }
+
       function selectedValues() {
         const values = Array.from(select.selectedOptions).map(function(opt) { return opt.value; });
         return values.length ? values : defaultIds;
       }
 
-      function buildTraces(selectedIds, startYear, endYear) {
-        const filtered = rows.filter(function(row) {
-          return selectedIds.indexOf(row.team) >= 0 && row.year >= startYear && row.year <= endYear;
+      function buildAxis(filtered, startYear, endYear) {
+        const events = [];
+        const seen = new Set();
+
+        filtered
+          .slice()
+          .sort(function(a, b) { return Number(a.event_id) - Number(b.event_id); })
+          .forEach(function(row) {
+            const key = String(row.event_id);
+            if (!seen.has(key)) {
+              seen.add(key);
+              events.push({
+                eventId: Number(row.event_id),
+                dateKey: row.date_key
+              });
+            }
+          });
+
+        const slotMap = {};
+        events.forEach(function(event, index) {
+          slotMap[event.eventId] = index + 1;
         });
 
+        if (!events.length) {
+          return { slotMap: slotMap, tickvals: [], ticktext: [] };
+        }
+
+        const firstDate = parseDateKey(events[0].dateKey);
+        const lastDate = parseDateKey(events[events.length - 1].dateKey);
+        const singleYear = startYear === endYear;
+        const tickvals = [];
+        const ticktext = [];
+
+        function pushTick(targetDate, fallbackEvent) {
+          const targetKey = targetDate.toISOString().slice(0, 10);
+          const matchedEvent = events.find(function(event) {
+            return event.dateKey >= targetKey;
+          }) || fallbackEvent;
+
+          if (!matchedEvent) {
+            return;
+          }
+
+          const slot = slotMap[matchedEvent.eventId];
+          if (tickvals.length && tickvals[tickvals.length - 1] === slot) {
+            return;
+          }
+
+          tickvals.push(slot);
+          ticktext.push(formatTickLabel(parseDateKey(matchedEvent.dateKey), singleYear));
+        }
+
+        if (singleYear) {
+          let cursor = new Date(firstDate.getTime());
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = new Date(cursor.getTime() + 14 * 24 * 60 * 60 * 1000);
+          }
+        } else {
+          const totalMonths = (lastDate.getFullYear() - firstDate.getFullYear()) * 12 +
+            (lastDate.getMonth() - firstDate.getMonth()) + 1;
+          const monthStep = Math.max(1, Math.ceil(totalMonths / 8));
+          let cursor = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = addMonths(cursor, monthStep);
+          }
+        }
+
+        pushTick(firstDate, events[0]);
+        pushTick(lastDate, events[events.length - 1]);
+
+        return { slotMap: slotMap, tickvals: tickvals, ticktext: ticktext };
+      }
+
+      function buildChart(selectedIds, startYear, endYear) {
+        const filtered = rows.filter(function(row) {
+          return selectedIds.indexOf(row.team) >= 0 && row.year >= startYear && row.year <= endYear;
+        }).slice().sort(function(a, b) {
+          if (a.team !== b.team) {
+            return String(a.team).localeCompare(String(b.team), 'ja');
+          }
+          return Number(a.event_id) - Number(b.event_id);
+        });
+
+        const axis = buildAxis(filtered, startYear, endYear);
+
         if (!filtered.length) {
-          return [{
-            x: [],
-            y: [],
-            type: 'scatter',
-            mode: 'lines'
-          }];
+          return {
+            traces: [{
+              x: [],
+              y: [],
+              type: 'scatter',
+              mode: 'lines'
+            }],
+            axis: axis
+          };
         }
 
         const grouped = {};
@@ -272,39 +323,22 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
               name: row.TeamName,
               mode: 'lines+markers',
               type: 'scatter',
+              connectgaps: true,
               line: { color: row.color, width: 3 },
               marker: { size: 5, color: row.color },
-              hovertemplate: '%{x|%Y/%m/%d}<br>' + row.TeamName + ': %{y:.1f}<extra></extra>'
+              customdata: [],
+              hovertemplate: '%{customdata}<br>' + row.TeamName + ': %{y:.1f}<extra></extra>'
             };
           }
-          grouped[row.team].x.push(row.x_value);
+          grouped[row.team].x.push(axis.slotMap[Number(row.event_id)]);
           grouped[row.team].y.push(row.rating);
+          grouped[row.team].customdata.push(row.date_key);
         });
-        return Object.keys(grouped).map(function(key) { return grouped[key]; });
-      }
 
-      function buildRangeBreaks(filtered) {
-        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date_key; }))).sort();
-
-        if (uniqueDates.length < 2) {
-          return [];
-        }
-
-        const skipped = [];
-
-        for (let i = 1; i < uniqueDates.length; i += 1) {
-          const prev = new Date(uniqueDates[i - 1] + 'T00:00:00');
-          const next = new Date(uniqueDates[i] + 'T00:00:00');
-          const cursor = new Date(prev.getTime());
-          cursor.setDate(cursor.getDate() + 1);
-
-          while (cursor < next) {
-            skipped.push(cursor.toISOString().slice(0, 10));
-            cursor.setDate(cursor.getDate() + 1);
-          }
-        }
-
-        return skipped.length ? [{ values: skipped }] : [];
+        return {
+          traces: Object.keys(grouped).map(function(key) { return grouped[key]; }),
+          axis: axis
+        };
       }
 
       function render() {
@@ -316,14 +350,20 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
           endYear = next;
         }
         const selectedIds = selectedValues();
-        const filtered = rows.filter(function(row) {
-          return selectedIds.indexOf(row.team) >= 0 && row.year >= startYear && row.year <= endYear;
-        });
-        Plotly.react(el, buildTraces(selectedIds, startYear, endYear), {
+        const chart = buildChart(selectedIds, startYear, endYear);
+        Plotly.react(el, chart.traces, {
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(255,255,255,0.96)',
           margin: { l: 48, r: 20, t: 20, b: 44 },
-          xaxis: { title: '', tickformat: '%Y/%m', rangebreaks: buildRangeBreaks(filtered) },
+          xaxis: {
+            title: '',
+            tickmode: 'array',
+            tickvals: chart.axis.tickvals,
+            ticktext: chart.axis.ticktext,
+            showgrid: true,
+            gridcolor: 'rgba(23,50,74,0.14)',
+            zeroline: false
+          },
           yaxis: { title: 'RATING' },
           legend: { orientation: 'h', x: 0, y: 1.12 }
         }, { displayModeBar: false, responsive: true });
@@ -408,23 +448,125 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
       const rows = data.rows || [];
       const defaultIds = data.defaultIds || [];
 
+      function parseDateKey(value) {
+        return new Date(value + 'T00:00:00');
+      }
+
+      function formatTickLabel(date, singleYear) {
+        const year = String(date.getFullYear());
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return singleYear ? (month + '/' + day) : (year + '/' + month);
+      }
+
+      function addMonths(date, count) {
+        const next = new Date(date.getTime());
+        next.setMonth(next.getMonth() + count);
+        return next;
+      }
+
       function selectedValues() {
         const values = Array.from(select.selectedOptions).map(function(opt) { return opt.value; });
         return values.length ? values : defaultIds;
       }
 
-      function buildTraces(selectedIds, startYear, endYear) {
-        const filtered = rows.filter(function(row) {
-          return selectedIds.indexOf(row.league) >= 0 && row.year >= startYear && row.year <= endYear;
+      function buildAxis(filtered, startYear, endYear) {
+        const events = [];
+        const seen = new Set();
+
+        filtered
+          .slice()
+          .sort(function(a, b) { return Number(a.event_id) - Number(b.event_id); })
+          .forEach(function(row) {
+            const key = String(row.event_id);
+            if (!seen.has(key)) {
+              seen.add(key);
+              events.push({
+                eventId: Number(row.event_id),
+                dateKey: row.date_key
+              });
+            }
+          });
+
+        const slotMap = {};
+        events.forEach(function(event, index) {
+          slotMap[event.eventId] = index + 1;
         });
 
+        if (!events.length) {
+          return { slotMap: slotMap, tickvals: [], ticktext: [] };
+        }
+
+        const firstDate = parseDateKey(events[0].dateKey);
+        const lastDate = parseDateKey(events[events.length - 1].dateKey);
+        const singleYear = startYear === endYear;
+        const tickvals = [];
+        const ticktext = [];
+
+        function pushTick(targetDate, fallbackEvent) {
+          const targetKey = targetDate.toISOString().slice(0, 10);
+          const matchedEvent = events.find(function(event) {
+            return event.dateKey >= targetKey;
+          }) || fallbackEvent;
+
+          if (!matchedEvent) {
+            return;
+          }
+
+          const slot = slotMap[matchedEvent.eventId];
+          if (tickvals.length && tickvals[tickvals.length - 1] === slot) {
+            return;
+          }
+
+          tickvals.push(slot);
+          ticktext.push(formatTickLabel(parseDateKey(matchedEvent.dateKey), singleYear));
+        }
+
+        if (singleYear) {
+          let cursor = new Date(firstDate.getTime());
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = new Date(cursor.getTime() + 14 * 24 * 60 * 60 * 1000);
+          }
+        } else {
+          const totalMonths = (lastDate.getFullYear() - firstDate.getFullYear()) * 12 +
+            (lastDate.getMonth() - firstDate.getMonth()) + 1;
+          const monthStep = Math.max(1, Math.ceil(totalMonths / 8));
+          let cursor = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = addMonths(cursor, monthStep);
+          }
+        }
+
+        pushTick(firstDate, events[0]);
+        pushTick(lastDate, events[events.length - 1]);
+
+        return { slotMap: slotMap, tickvals: tickvals, ticktext: ticktext };
+      }
+
+      function buildChart(selectedIds, startYear, endYear) {
+        const filtered = rows.filter(function(row) {
+          return selectedIds.indexOf(row.league) >= 0 && row.year >= startYear && row.year <= endYear;
+        }).slice().sort(function(a, b) {
+          if (a.league !== b.league) {
+            return String(a.league).localeCompare(String(b.league), 'ja');
+          }
+          return Number(a.event_id) - Number(b.event_id);
+        });
+
+        const axis = buildAxis(filtered, startYear, endYear);
+
         if (!filtered.length) {
-          return [{
-            x: [],
-            y: [],
-            type: 'scatter',
-            mode: 'lines'
-          }];
+          return {
+            traces: [{
+              x: [],
+              y: [],
+              type: 'scatter',
+              mode: 'lines'
+            }],
+            axis: axis
+          };
         }
 
         const grouped = {};
@@ -436,39 +578,22 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
               name: row.league,
               mode: 'lines+markers',
               type: 'scatter',
+              connectgaps: true,
               line: { width: 3 },
               marker: { size: 5 },
-              hovertemplate: '%{x|%Y/%m/%d}<br>' + row.league + ': %{y:.1f}<extra></extra>'
+              customdata: [],
+              hovertemplate: '%{customdata}<br>' + row.league + ': %{y:.1f}<extra></extra>'
             };
           }
-          grouped[row.league].x.push(row.x_value);
+          grouped[row.league].x.push(axis.slotMap[Number(row.event_id)]);
           grouped[row.league].y.push(row.rating);
+          grouped[row.league].customdata.push(row.date_key);
         });
-        return Object.keys(grouped).map(function(key) { return grouped[key]; });
-      }
 
-      function buildRangeBreaks(filtered) {
-        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date_key; }))).sort();
-
-        if (uniqueDates.length < 2) {
-          return [];
-        }
-
-        const skipped = [];
-
-        for (let i = 1; i < uniqueDates.length; i += 1) {
-          const prev = new Date(uniqueDates[i - 1] + 'T00:00:00');
-          const next = new Date(uniqueDates[i] + 'T00:00:00');
-          const cursor = new Date(prev.getTime());
-          cursor.setDate(cursor.getDate() + 1);
-
-          while (cursor < next) {
-            skipped.push(cursor.toISOString().slice(0, 10));
-            cursor.setDate(cursor.getDate() + 1);
-          }
-        }
-
-        return skipped.length ? [{ values: skipped }] : [];
+        return {
+          traces: Object.keys(grouped).map(function(key) { return grouped[key]; }),
+          axis: axis
+        };
       }
 
       function render() {
@@ -480,14 +605,20 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
           endYear = next;
         }
         const selectedIds = selectedValues();
-        const filtered = rows.filter(function(row) {
-          return selectedIds.indexOf(row.league) >= 0 && row.year >= startYear && row.year <= endYear;
-        });
-        Plotly.react(el, buildTraces(selectedIds, startYear, endYear), {
+        const chart = buildChart(selectedIds, startYear, endYear);
+        Plotly.react(el, chart.traces, {
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(255,255,255,0.96)',
           margin: { l: 48, r: 20, t: 20, b: 44 },
-          xaxis: { title: '', tickformat: '%Y/%m', rangebreaks: buildRangeBreaks(filtered) },
+          xaxis: {
+            title: '',
+            tickmode: 'array',
+            tickvals: chart.axis.tickvals,
+            ticktext: chart.axis.ticktext,
+            showgrid: true,
+            gridcolor: 'rgba(23,50,74,0.14)',
+            zeroline: false
+          },
           yaxis: { title: 'RATING' },
           legend: { orientation: 'h', x: 0, y: 1.12 }
         }, { displayModeBar: false, responsive: true });

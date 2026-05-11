@@ -408,6 +408,8 @@ games_display <- game_results |>
     gamedate = as.Date(gamedate),
     date_label = fmt_date(gamedate),
     score_label = paste0(score1, " - ", score2),
+    team1_rate_before = round(display_r1_before, 1),
+    team2_rate_before = round(display_r2_before, 1),
     rating_move_team1 = round(display_delta1, 1),
     rating_move_team2 = round(display_delta2, 1),
     rating_move_value = round(abs(display_delta1), 1),
@@ -426,6 +428,7 @@ games_display <- game_results |>
 build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALSE, show_pagination = FALSE, prefix = nav_prefix) {
   reactable(
     tbl,
+    defaultColDef = colDef(show = FALSE),
     searchable = searchable,
     highlight = TRUE,
     pagination = show_pagination,
@@ -434,18 +437,21 @@ build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALS
     defaultSorted = list(rank = "asc"),
     columns = list(
       rank = colDef(
+        show = TRUE,
         name = "RANK",
         width = 74,
         align = "center",
         cell = function(v) rank_cell(v)
       ),
       display_rating = colDef(
+        show = TRUE,
         name = "RATE",
         width = 84,
         align = "right",
         format = colFormat(digits = 1)
       ),
       TeamName = colDef(
+        show = TRUE,
         name = "UNIVERSITY",
         minWidth = 180,
         cell = function(v, index) {
@@ -454,23 +460,27 @@ build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALS
         }
       ),
       LeagueName = colDef(
+        show = TRUE,
         name = "LEAGUE",
         minWidth = 130,
         cell = function(v) league_name_cell(v, prefix = prefix)
       ),
       last3 = colDef(
+        show = TRUE,
         name = "LAST 3",
         width = 110,
         align = "center",
         cell = function(v) form_html(v)
       ),
       last_gamedate = colDef(
+        show = TRUE,
         name = "LAST GAME",
         minWidth = 118,
         align = "right",
         format = colFormat(date = TRUE, locales = "ja-JP")
       ),
       rank_change = colDef(
+        show = TRUE,
         name = "CHANGE",
         width = 92,
         align = "center",
@@ -494,6 +504,7 @@ build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALS
 build_league_table <- function(tbl, page_size = nrow(tbl), searchable = FALSE, show_pagination = FALSE, prefix = nav_prefix) {
   reactable(
     tbl,
+    defaultColDef = colDef(show = FALSE),
     searchable = searchable,
     highlight = TRUE,
     pagination = show_pagination,
@@ -502,23 +513,27 @@ build_league_table <- function(tbl, page_size = nrow(tbl), searchable = FALSE, s
     defaultSorted = list(rank = "asc"),
     columns = list(
       rank = colDef(
+        show = TRUE,
         name = "RANK",
         width = 74,
         align = "center",
         cell = function(v) rank_cell(v)
       ),
       rating = colDef(
+        show = TRUE,
         name = "RATE",
         width = 84,
         align = "right",
         format = colFormat(digits = 1)
       ),
       LeagueName = colDef(
+        show = TRUE,
         name = "LEAGUE",
         minWidth = 180,
         cell = function(v) league_name_cell(v, prefix = prefix)
       ),
       top_team_name = colDef(
+        show = TRUE,
         name = "TOP TEAM",
         minWidth = 180,
         cell = function(v, index) {
@@ -527,19 +542,22 @@ build_league_table <- function(tbl, page_size = nrow(tbl), searchable = FALSE, s
         }
       ),
       top_team_rating = colDef(
+        show = TRUE,
         name = "TOP RATE",
         width = 96,
         align = "right",
         format = colFormat(digits = 1)
       ),
       rank_change = colDef(
+        show = TRUE,
         name = "CHANGE",
         width = 92,
         align = "center",
         cell = function(v) change_html(v)
       ),
       top_team = colDef(show = FALSE),
-      prev_rank = colDef(show = FALSE)
+      prev_rank = colDef(show = FALSE),
+      prev_rating = colDef(show = FALSE)
     ),
     class = "compact-reactable"
   )

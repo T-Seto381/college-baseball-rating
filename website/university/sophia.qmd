@@ -178,6 +178,19 @@ team_plot_widget <- plot_ly() |>
         return new Date(value + 'T00:00:00');
       }
 
+      function formatTickLabel(date, singleYear) {
+        const year = String(date.getFullYear());
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return singleYear ? (month + '/' + day) : (year + '/' + month);
+      }
+
+      function addMonths(date, count) {
+        const next = new Date(date.getTime());
+        next.setMonth(next.getMonth() + count);
+        return next;
+      }
+
       function sortGames(rows) {
         const key = sortSelector ? sortSelector.value : 'LATEST';
         const direction = directionSelector && directionSelector.value === 'ASC' ? 1 : -1;
@@ -235,29 +248,72 @@ team_plot_widget <- plot_ly() |>
         });
       }
 
-      function buildRangeBreaks(rows) {
-        if (rows.length < 2) {
-          return [];
+      function buildAxis(rows, active) {
+        const events = rows
+          .slice()
+          .sort(function(a, b) { return Number(a.event_id) - Number(b.event_id); })
+          .map(function(row) {
+            return {
+              eventId: Number(row.event_id),
+              dateKey: row.date_key
+            };
+          });
+
+        const slotMap = {};
+        events.forEach(function(event, index) {
+          slotMap[event.eventId] = index + 1;
+        });
+
+        if (!events.length) {
+          return { slotMap: slotMap, tickvals: [], ticktext: [] };
         }
 
-        const uniqueDates = Array.from(new Set(rows.map(function(row) {
-          return row.date_key;
-        }))).sort();
-        const skipped = [];
+        const firstDate = parseDate(events[0].dateKey);
+        const lastDate = parseDate(events[events.length - 1].dateKey);
+        const singleYear = active.mode !== 'ALL' && active.startYear === active.endYear;
+        const tickvals = [];
+        const ticktext = [];
 
-        for (let i = 1; i < uniqueDates.length; i += 1) {
-          const prev = parseDate(uniqueDates[i - 1]);
-          const next = parseDate(uniqueDates[i]);
-          const cursor = new Date(prev.getTime());
-          cursor.setDate(cursor.getDate() + 1);
+        function pushTick(targetDate, fallbackEvent) {
+          const targetKey = targetDate.toISOString().slice(0, 10);
+          const matchedEvent = events.find(function(event) {
+            return event.dateKey >= targetKey;
+          }) || fallbackEvent;
 
-          while (cursor < next) {
-            skipped.push(cursor.toISOString().slice(0, 10));
-            cursor.setDate(cursor.getDate() + 1);
+          if (!matchedEvent) {
+            return;
+          }
+
+          const slot = slotMap[matchedEvent.eventId];
+          if (tickvals.length && tickvals[tickvals.length - 1] === slot) {
+            return;
+          }
+
+          tickvals.push(slot);
+          ticktext.push(formatTickLabel(parseDate(matchedEvent.dateKey), singleYear));
+        }
+
+        if (singleYear) {
+          let cursor = new Date(firstDate.getTime());
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = new Date(cursor.getTime() + 14 * 24 * 60 * 60 * 1000);
+          }
+        } else {
+          const totalMonths = (lastDate.getFullYear() - firstDate.getFullYear()) * 12 +
+            (lastDate.getMonth() - firstDate.getMonth()) + 1;
+          const monthStep = Math.max(1, Math.ceil(totalMonths / 8));
+          let cursor = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+          while (cursor <= lastDate) {
+            pushTick(cursor, null);
+            cursor = addMonths(cursor, monthStep);
           }
         }
 
-        return skipped.length ? [{ values: skipped }] : [];
+        pushTick(firstDate, events[0]);
+        pushTick(lastDate, events[events.length - 1]);
+
+        return { slotMap: slotMap, tickvals: tickvals, ticktext: ticktext };
       }
 
       function updateRangeLabel() {
@@ -289,7 +345,11 @@ team_plot_widget <- plot_ly() |>
       }
 
       function renderPlot() {
-        const rows = filterPoints();
+        const rows = filterPoints().slice().sort(function(a, b) {
+          return Number(a.event_id) - Number(b.event_id);
+        });
+        const active = activeRange();
+        const axis = buildAxis(rows, active);
 
         if (!rows.length) {
           Plotly.react(el, [], {
@@ -308,12 +368,13 @@ team_plot_widget <- plot_ly() |>
         }
 
         Plotly.react(el, [{
-          x: rows.map(function(row) { return row.x_value; }),
+          x: rows.map(function(row) { return axis.slotMap[Number(row.event_id)]; }),
           y: rows.map(function(row) { return row.rating_after; }),
           text: rows.map(function(row) { return row.hover_text; }),
           hoverinfo: 'text',
           type: 'scatter',
           mode: 'lines+markers',
+          connectgaps: true,
           line: { color: '#17324A', width: 3 },
           marker: { size: 6, color: '#17324A' }
         }], {
@@ -322,8 +383,12 @@ team_plot_widget <- plot_ly() |>
           margin: { l: 48, r: 20, t: 20, b: 44 },
           xaxis: {
             title: '',
-            tickformat: '%Y/%m',
-            rangebreaks: buildRangeBreaks(rows)
+            tickmode: 'array',
+            tickvals: axis.tickvals,
+            ticktext: axis.ticktext,
+            showgrid: true,
+            gridcolor: 'rgba(23,50,74,0.14)',
+            zeroline: false
           },
           yaxis: { title: 'RATING' },
           showlegend: false
