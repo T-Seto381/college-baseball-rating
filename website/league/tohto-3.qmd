@@ -1,0 +1,24 @@
+---
+title: "東都3部"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+LEAGUE <- "東都3部"
+```
+
+<meta http-equiv="refresh" content="0; url=../explore.html#league-browser">
+
+::: {.minimal-hero}
+<div class="minimal-kicker">LEAGUE</div>
+<h1 class="minimal-title">`r LEAGUE`</h1>
+<div class="hero-meta-strip">
+  <span>MOVED TO EXPLORE</span>
+</div>
+:::
+
+<div class="section-actions">
+  <a href="../explore.html#league-browser" class="directory-link">リーグ一覧へ移動</a>
+</div>

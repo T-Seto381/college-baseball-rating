@@ -1,6 +1,5 @@
 ---
-params:
-  team: "東大"
+title: "國學院大學"
 format:
   html:
     page-layout: full
@@ -9,7 +8,7 @@ format:
 ```{r setup}
 source("../common_site.R", local = TRUE)
 
-TEAM <- params$team
+TEAM <- "國學院"
 
 team_info <- team_meta |>
   filter(team == TEAM) |>

@@ -11,21 +11,14 @@ library(reactable)
 library(lubridate)
 library(htmltools)
 
+source("site_utils.R", local = TRUE)
+
 comparison <- read_csv("../logs/model_comparison.csv", show_col_types = FALSE)
 teams_info <- readxl::read_excel("../data_out/teamdata.xlsx")
 game_results <- read_csv("../data_out/ratings/game_results_with_ratings.csv", show_col_types = FALSE) |>
   mutate(gamedate = as.Date(gamedate))
-
-TEAM_SLUG <- c(
-  "東大" = "todai",
-  "明治" = "meiji",
-  "慶應" = "keio",
-  "早稲田" = "waseda",
-  "立教" = "rikkyo",
-  "法政" = "hosei"
-)
-
-LEAGUE_SLUG <- c("東京六大学" = "tokyo6")
+team_slug_table <- build_team_slug_table(teams_info)
+league_slug_table <- build_league_slug_table(unique(infer_league_name(game_results$gametype)))
 
 coverage_games <- game_results |>
   filter(gamedate <= Sys.Date())
@@ -56,24 +49,21 @@ team_count <- teams_info |>
   distinct(TeamShortName) |>
   nrow()
 
-league_count <- teams_info |>
-  filter(!is.na(LeagueName)) |>
-  distinct(LeagueName) |>
-  nrow()
+league_count <- nrow(league_slug_table)
 
 search_targets <- bind_rows(
   teams_info |>
+    left_join(team_slug_table, by = c("TeamShortName" = "team")) |>
     transmute(
       label = TeamName,
       search = paste(TeamName, TeamShortName, LeagueName),
-      url = paste0("university/", TEAM_SLUG[TeamShortName], ".html")
+      url = paste0("university/", team_slug, ".html")
     ),
-  teams_info |>
-    distinct(LeagueName) |>
+  league_slug_table |>
     transmute(
       label = LeagueName,
       search = LeagueName,
-      url = paste0("league/", LEAGUE_SLUG[LeagueName], ".html")
+      url = paste0("league/", league_slug, ".html")
     )
 ) |>
   filter(!is.na(url))
@@ -707,6 +697,7 @@ display_rating = 50 + 10 × (rating - mean(rating)) / sd(rating)
 | データ | 出典 | 期間 |
 |--------|------|------|
 | 東京六大学野球 試合結果 | 東京六大学野球連盟公式 | 2000年〜現在 |
+| 東都大学野球 試合結果 | 東都大学野球連盟公式 | 2002年秋〜現在 |
 
 ## コード・データ公開
 

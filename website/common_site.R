@@ -16,6 +16,17 @@ suppressPackageStartupMessages({
   }
 }
 
+common_site_file <- normalizePath(
+  c("common_site.R", file.path("website", "common_site.R"), "../common_site.R")[c(
+    file.exists("common_site.R"),
+    file.exists(file.path("website", "common_site.R")),
+    file.exists("../common_site.R")
+  )][1],
+  winslash = "/",
+  mustWork = TRUE
+)
+source(file.path(dirname(common_site_file), "site_utils.R"), local = TRUE)
+
 resolve_site_root <- function() {
   candidates <- c(".", "website", "..")
   for (candidate in candidates) {
@@ -38,37 +49,6 @@ site_root <- resolve_site_root()
 data_root <- normalizePath(file.path(site_root, "..", "data_out"), winslash = "/", mustWork = TRUE)
 logs_root <- normalizePath(file.path(site_root, "..", "logs"), winslash = "/", mustWork = TRUE)
 nav_prefix <- if (grepl("/(university|league)$", getwd())) "../" else ""
-
-TEAM_SLUG <- c(
-  "東大" = "todai",
-  "明治" = "meiji",
-  "慶應" = "keio",
-  "早稲田" = "waseda",
-  "立教" = "rikkyo",
-  "法政" = "hosei"
-)
-
-LEAGUE_SLUG <- c(
-  "東京六大学" = "tokyo6"
-)
-
-team_url <- function(team, prefix = nav_prefix) {
-  slug <- unname(TEAM_SLUG[team])
-  ifelse(
-    is.na(slug),
-    "#",
-    paste0(prefix, "university/", slug, ".html")
-  )
-}
-
-league_url <- function(league, prefix = nav_prefix) {
-  slug <- unname(LEAGUE_SLUG[league])
-  ifelse(
-    is.na(slug),
-    paste0(prefix, "explore.html#league-browser"),
-    paste0(prefix, "league/", slug, ".html")
-  )
-}
 
 explore_url <- function(prefix = nav_prefix, anchor = NULL) {
   path <- paste0(prefix, "explore.html")
@@ -105,11 +85,35 @@ teams_info <- read_excel(file.path(data_root, "teamdata.xlsx")) |>
     )
   )
 
+team_slug_table <- build_team_slug_table(teams_info)
+league_slug_table <- build_league_slug_table(unique(infer_league_name(game_results$gametype)))
+team_slug_lookup <- setNames(team_slug_table$team_slug, team_slug_table$team)
+league_slug_lookup <- setNames(league_slug_table$league_slug, league_slug_table$LeagueName)
+
+team_url <- function(team, prefix = nav_prefix) {
+  slug <- unname(team_slug_lookup[team])
+
+  ifelse(
+    is.na(slug),
+    "#",
+    paste0(prefix, "university/", slug, ".html")
+  )
+}
+
+league_url <- function(league, prefix = nav_prefix) {
+  slug <- unname(league_slug_lookup[league])
+
+  ifelse(
+    is.na(slug),
+    paste0(prefix, "explore.html#league-browser"),
+    paste0(prefix, "league/", slug, ".html")
+  )
+}
+
 team_meta <- teams_info |>
   transmute(
     team = TeamShortName,
     TeamName,
-    LeagueName,
     c1,
     c2,
     c3
@@ -164,7 +168,7 @@ team_name_cell <- function(team, label, color, prefix = nav_prefix) {
 
 league_name_cell <- function(league, prefix = nav_prefix) {
   tags$a(
-    href = explore_url(prefix, anchor = "league-browser"),
+    href = league_url(league, prefix = prefix),
     class = "team-link-inline",
     league
   )
@@ -197,6 +201,32 @@ rank_history <- rating_hist |>
   arrange(date, desc(display_rating), team) |>
   group_by(date) |>
   mutate(rank = row_number()) |>
+  ungroup()
+
+team_league_events <- bind_rows(
+  game_results |>
+    transmute(gamedate, team = team1, LeagueName = infer_league_name(gametype)),
+  game_results |>
+    transmute(gamedate, team = team2, LeagueName = infer_league_name(gametype))
+) |>
+  filter(!is.na(LeagueName)) |>
+  arrange(team, gamedate, LeagueName) |>
+  group_by(team, gamedate) |>
+  slice_tail(n = 1) |>
+  ungroup()
+
+team_league_history <- expand_grid(
+  date = sort(unique(rank_history$date)),
+  team = sort(unique(rank_history$team))
+) |>
+  left_join(
+    team_league_events |>
+      rename(date = gamedate),
+    by = c("date", "team")
+  ) |>
+  arrange(team, date) |>
+  group_by(team) |>
+  fill(LeagueName, .direction = "downup") |>
   ungroup()
 
 current_prev_ranks <- rank_history |>
@@ -235,7 +265,7 @@ team_game_log <- bind_rows(
 ) |>
   left_join(
     team_meta |>
-      select(team, TeamName, LeagueName, c1),
+      select(team, TeamName, c1),
     by = "team"
   ) |>
   rename(team_name = TeamName, team_color = c1) |>
@@ -271,8 +301,17 @@ last_game_lookup <- team_game_log |>
   group_by(team) |>
   summarise(last_gamedate = max(gamedate), .groups = "drop")
 
+current_team_leagues <- team_league_history |>
+  filter(date == latest_snapshot_date) |>
+  select(team, LeagueName)
+
+prev_team_leagues <- team_league_history |>
+  filter(date == prev_snapshot_date) |>
+  select(team, LeagueName)
+
 current_team_table <- final_ratings |>
   left_join(team_meta, by = "team") |>
+  left_join(current_team_leagues, by = "team") |>
   left_join(form_lookup, by = "team") |>
   left_join(last_game_lookup, by = "team") |>
   left_join(current_prev_ranks, by = "team") |>
@@ -284,7 +323,7 @@ current_team_table <- final_ratings |>
 
 prev_league_table <- rank_history |>
   filter(date == prev_snapshot_date) |>
-  left_join(team_meta |> select(team, LeagueName, TeamName), by = "team") |>
+  left_join(prev_team_leagues, by = "team") |>
   filter(!is.na(LeagueName)) |>
   group_by(LeagueName) |>
   summarise(prev_rating = mean(display_rating), .groups = "drop") |>
@@ -308,7 +347,7 @@ current_league_table <- current_team_table |>
   mutate(rank_change = if_else(is.na(prev_rank), NA_integer_, prev_rank - rank))
 
 league_history <- rank_history |>
-  left_join(team_meta |> select(team, LeagueName), by = "team") |>
+  left_join(team_league_history, by = c("date", "team")) |>
   filter(!is.na(LeagueName)) |>
   group_by(date, LeagueName) |>
   summarise(display_rating = round(mean(display_rating), 1), .groups = "drop") |>

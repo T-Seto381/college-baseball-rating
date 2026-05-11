@@ -37,6 +37,8 @@ suppressPackageStartupMessages({
 dir_create("data_out/ratings")
 dir_create("logs")
 
+source("website/site_utils.R", local = TRUE)
+
 INIT_RATING <- 1500   # 初期レーティング（内部計算用）
 K_FIXED     <- 50     # Elo K-factor (固定)
 SCALE       <- 173.7178  # Glicko2スケール定数
@@ -56,12 +58,43 @@ TRAIN_CUTOFF <- as.Date("2019-12-31")  # ウォークフォワードCV 分割点
 # 1. データ読み込み
 # ============================================================
 
-games_raw <- read_csv("data_out/big6_results_2000_2026.csv",
-                      show_col_types = FALSE) |>
-  mutate(gamedate = as.Date(gamedate)) |>
-  arrange(gamedate)
-
 teams_raw <- read_excel("data_out/teamdata.xlsx")
+
+games_big6 <- read_csv("data_out/big6_results_2000_2026.csv",
+                       show_col_types = FALSE) |>
+  mutate(source = "東京六大学")
+
+games_tohto <- read_csv("data_out/tohto_results.csv",
+                        show_col_types = FALSE) |>
+  mutate(source = "東都大学野球")
+
+games_raw <- bind_rows(games_big6, games_tohto) |>
+  mutate(
+    gamedate = as.Date(gamedate),
+    team1 = standardize_team_names(team1, teams_raw),
+    team2 = standardize_team_names(team2, teams_raw),
+    score1 = as.numeric(score1),
+    score2 = as.numeric(score2)
+  ) |>
+  filter(
+    !is.na(gamedate),
+    !is.na(team1), team1 != "",
+    !is.na(team2), team2 != "",
+    !is.na(score1),
+    !is.na(score2)
+  ) |>
+  distinct(gamedate, gametype, team1, score1, score2, team2, .keep_all = TRUE) |>
+  select(gamedate, gametype, team1, score1, score2, team2) |>
+  arrange(gamedate, gametype, team1, team2)
+
+unknown_teams <- setdiff(
+  sort(unique(c(games_raw$team1, games_raw$team2))),
+  sort(unique(teams_raw$TeamShortName))
+)
+
+if (length(unknown_teams) > 0) {
+  warning("Unmapped team names found: ", paste(unknown_teams, collapse = ", "))
+}
 
 all_team_names <- sort(unique(c(games_raw$team1, games_raw$team2)))
 cat("チーム名一覧:", paste(all_team_names, collapse = ", "), "\n")
@@ -514,18 +547,20 @@ rating_snapshot <- function(history) {
   all_teams <- sort(unique(c(history$team1, history$team2)))
 
   map_dfr(all_teams, function(tm) {
-    history |>
+    team_history <- history |>
       filter(team1 == tm | team2 == tm) |>
       mutate(rating_after = if_else(team1 == tm, r1_after, r2_after)) |>
       transmute(date = gamedate, team = tm, rating = rating_after)
-  }) |>
+
     bind_rows(
       tibble(
-        date   = min(history$gamedate) - 1,
-        team   = sort(unique(c(history$team1, history$team2))),
+        date   = min(team_history$date) - 1,
+        team   = tm,
         rating = INIT_RATING
-      )
-    ) |>
+      ),
+      team_history
+    )
+  }) |>
     arrange(team, date) |>
     group_by(team, date) |>
     slice_tail(n = 1) |>
@@ -543,15 +578,19 @@ snapshot <- rating_snapshot(best_history)
 all_snapshot_dates <- sort(unique(snapshot$date))
 all_snapshot_teams <- sort(unique(snapshot$team))
 
-snapshot_full <- expand_grid(
-  date = all_snapshot_dates,
-  team = all_snapshot_teams
-) |>
-  left_join(snapshot, by = c("date", "team")) |>
-  arrange(team, date) |>
-  group_by(team) |>
-  fill(rating, .direction = "down") |>   # 試合なし日は前試合後レートで補完
-  ungroup()
+snapshot_full <- map_dfr(all_snapshot_teams, function(tm) {
+  team_snapshot <- snapshot |>
+    filter(team == tm) |>
+    arrange(date)
+
+  tibble(
+    date = all_snapshot_dates[all_snapshot_dates >= min(team_snapshot$date)],
+    team = tm
+  ) |>
+    left_join(team_snapshot, by = c("date", "team")) |>
+    arrange(date) |>
+    fill(rating, .direction = "down")
+})
 
 snapshot_with_hensachi <- snapshot_full |>
   group_by(date) |>

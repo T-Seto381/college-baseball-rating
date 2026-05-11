@@ -10,25 +10,17 @@ suppressPackageStartupMessages({
   library(fs)
 })
 
-# ---- ASCII スラグマッピング（日本語ファイル名はGitHub Pagesで機能しないため） ----
-TEAM_SLUG <- c(
-  "東大"   = "todai",
-  "明治"   = "meiji",
-  "慶應"   = "keio",
-  "早稲田" = "waseda",
-  "立教"   = "rikkyo",
-  "法政"   = "hosei"
-)
-
-LEAGUE_SLUG <- c(
-  "東京六大学" = "tokyo6"
-)
+source("site_utils.R", local = TRUE)
 
 # ---- チーム・リーグ情報の取得 ----
 teams_info <- read_excel("../data_out/teamdata.xlsx")
+game_results <- readr::read_csv("../data_out/ratings/game_results_with_ratings.csv", show_col_types = FALSE)
+
+team_slug_table <- build_team_slug_table(teams_info)
+league_slug_table <- build_league_slug_table(unique(infer_league_name(game_results$gametype)))
 
 all_teams   <- unique(teams_info$TeamShortName)
-all_leagues <- unique(teams_info$LeagueName)
+all_leagues <- league_slug_table$LeagueName
 
 cat("=== .qmd ファイル生成開始 ===\n")
 cat("大学:", length(all_teams), "校  リーグ:", length(all_leagues), "\n\n")
@@ -52,7 +44,10 @@ cat("--- 大学ページ ---\n")
 dir_create("university")
 
 for (tm in all_teams) {
-  slug <- TEAM_SLUG[tm]
+  slug <- team_slug_table |>
+    filter(team == tm) |>
+    pull(team_slug) |>
+    dplyr::first()
   if (is.na(slug)) {
     message("  SKIP (no slug): ", tm); next
   }
@@ -93,7 +88,10 @@ cat("\n--- リーグページ ---\n")
 dir_create("league")
 
 for (lg in all_leagues) {
-  slug <- LEAGUE_SLUG[lg]
+  slug <- league_slug_table |>
+    filter(LeagueName == lg) |>
+    pull(league_slug) |>
+    dplyr::first()
   if (is.na(slug)) {
     message("  SKIP (no slug): ", lg); next
   }

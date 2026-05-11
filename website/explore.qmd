@@ -16,7 +16,6 @@ team_series <- rating_hist |>
   transmute(
     team,
     TeamName,
-    LeagueName,
     color = c1,
     date = format(date, "%Y-%m-%d"),
     rating = round(display_rating, 1),

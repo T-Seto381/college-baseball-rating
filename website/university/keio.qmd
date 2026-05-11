@@ -357,7 +357,7 @@ team_plot_widget <- plot_ly() |>
 <div class="hero-meta-strip">
   <span>RANK `r team_current$rank[[1]]`</span>
   <span>RATE `r sprintf("%.1f", team_current$display_rating[[1]])`</span>
-  <span>LEAGUE `r team_info$LeagueName[[1]]`</span>
+  <span>LEAGUE `r team_current$LeagueName[[1]]`</span>
   <span>LAST `r fmt_date(team_current$last_gamedate[[1]])`</span>
 </div>
 :::
