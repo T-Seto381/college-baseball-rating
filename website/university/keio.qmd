@@ -21,10 +21,22 @@ team_current <- current_team_table |>
 team_games <- team_game_log |>
   filter(team == TEAM) |>
   arrange(gamedate) |>
-  mutate(game_number = row_number())
+  mutate(
+    game_number = row_number(),
+    year_key = as.character(year(gamedate))
+  )
 
 team_scope <- team_games |>
   filter(game_number >= 31)
+
+team_average_table <- team_game_log |>
+  arrange(team, gamedate) |>
+  group_by(team) |>
+  mutate(game_number = row_number()) |>
+  filter(game_number >= 31) |>
+  summarise(avg_rate = mean(rating_after), .groups = "drop") |>
+  arrange(desc(avg_rate), team) |>
+  mutate(avg_rank = row_number())
 
 scope_average <- if (nrow(team_scope) > 0) round(mean(team_scope$rating_after), 1) else NA_real_
 
@@ -36,139 +48,78 @@ low_game <- team_scope |>
   arrange(rating_after, desc(gamedate)) |>
   slice_head(n = 1)
 
-avg_game <- team_scope |>
-  mutate(avg_gap = abs(rating_after - scope_average)) |>
-  arrange(avg_gap, desc(gamedate)) |>
+avg_rank_row <- team_average_table |>
+  filter(team == TEAM) |>
   slice_head(n = 1)
 
-season_spans <- team_games |>
-  distinct(gamedate, season) |>
-  arrange(gamedate) |>
-  mutate(
-    season_group = cumsum(
-      season != lag(season, default = first(season)) |
-        year(gamedate) != lag(year(gamedate), default = first(year(gamedate)))
-    )
-  ) |>
-  group_by(season_group) |>
-  summarise(
-    season = first(season),
-    span_start = min(gamedate),
-    .groups = "drop"
-  ) |>
-  mutate(
-    next_start = lead(span_start),
-    span_end = if_else(
-      is.na(next_start),
-      max(team_games$gamedate),
-      next_start - days(1)
-    ),
-    fill = if_else(season == "春", "rgba(113, 164, 88, 0.16)", "rgba(194, 104, 104, 0.16)")
-  )
+scope_span_label <- if (nrow(team_scope) > 0) {
+  paste0(fmt_date(min(team_scope$gamedate)), "-", fmt_date(max(team_scope$gamedate)))
+} else {
+  "NO DATA"
+}
 
-plot_shapes <- lapply(seq_len(nrow(season_spans)), function(i) {
-  row <- season_spans[i, ]
-  list(
-    type = "rect",
-    xref = "x",
-    yref = "paper",
-    x0 = row$span_start[[1]],
-    x1 = row$span_end[[1]],
-    y0 = 0,
-    y1 = 1,
-    fillcolor = row$fill[[1]],
-    opacity = 1,
-    line = list(width = 0),
-    layer = "below"
-  )
-})
-
-team_plot_df <- team_games |>
-  transmute(
-    gamedate,
-    rating_after = round(rating_after, 1),
-    rank_after,
-    hover_text = paste0(
-      fmt_date(gamedate),
-      "<br>",
-      hover_result,
-      "<br>Rating ", sprintf("%.1f", rating_after),
-      "<br>Rank ", rank_after
-    )
-  )
-
-team_plot <- plot_ly() |>
-  add_trace(
-    data = team_plot_df,
-    x = ~gamedate,
-    y = ~rating_after,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "RATING",
-    line = list(color = team_info$c1[[1]], width = 3),
-    marker = list(size = 6, color = team_info$c1[[1]]),
-    text = ~hover_text,
-    hoverinfo = "text"
-  ) |>
-  add_trace(
-    data = team_plot_df,
-    x = ~gamedate,
-    y = ~rank_after,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "RANK",
-    yaxis = "y2",
-    line = list(color = "rgba(23, 50, 74, 0.72)", width = 2, dash = "dot"),
-    marker = list(size = 5, color = "rgba(23, 50, 74, 0.72)"),
-    text = ~hover_text,
-    hoverinfo = "text"
-  ) |>
-  layout(
-    paper_bgcolor = "rgba(0,0,0,0)",
-    plot_bgcolor = "rgba(255,255,255,0.96)",
-    margin = list(l = 48, r = 56, t = 20, b = 44),
-    xaxis = list(title = "", tickformat = "%Y/%m"),
-    yaxis = list(title = "RATING"),
-    yaxis2 = list(
-      title = "RANK",
-      overlaying = "y",
-      side = "right",
-      autorange = "reversed",
-      dtick = 1
-    ),
-    legend = list(orientation = "h", x = 0, y = 1.1),
-    shapes = plot_shapes
-  ) |>
-  config(displayModeBar = FALSE, responsive = TRUE)
-
-record_card <- function(kicker, value, row) {
-  note <- if (nrow(row) == 0) {
-    "NO DATA"
-  } else {
-    paste0(
-      fmt_date(row$gamedate[[1]]),
-      "  ",
-      row$team_name[[1]],
-      " ",
-      row$score_for[[1]],
-      "-",
-      row$score_against[[1]],
-      " ",
-      row$opponent_name[[1]]
-    )
-  }
-
+record_card <- function(label, value, note) {
   div(
     class = "metric-card",
-    div(class = "metric-label", kicker),
+    div(class = "metric-label", label),
     div(class = "metric-value", value),
     div(class = "metric-note", note)
   )
 }
 
-team_game_rows <- team_games |>
+peak_note <- if (nrow(peak_game) > 0) {
+  paste0("Rank ", peak_game$rank_after[[1]], " / ", fmt_date(peak_game$gamedate[[1]]))
+} else {
+  "NO DATA"
+}
+
+low_note <- if (nrow(low_game) > 0) {
+  paste0("Rank ", low_game$rank_after[[1]], " / ", fmt_date(low_game$gamedate[[1]]))
+} else {
+  "NO DATA"
+}
+
+avg_note <- if (nrow(avg_rank_row) > 0) {
+  paste0("Rank ", avg_rank_row$avg_rank[[1]], " / ", scope_span_label)
+} else {
+  "NO DATA"
+}
+
+current_note <- if (nrow(team_current) > 0) {
+  paste0("Rank ", team_current$rank[[1]], " / ", fmt_date(latest_snapshot_date))
+} else {
+  "NO DATA"
+}
+
+team_year_options <- sort(unique(team_games$year_key), decreasing = TRUE)
+default_year_key <- if (as.character(current_year) %in% team_year_options) {
+  as.character(current_year)
+} else if (length(team_year_options) > 0) {
+  team_year_options[[1]]
+} else {
+  "ALL"
+}
+
+team_plot_rows <- team_games |>
   transmute(
+    year_key,
     date = format(gamedate, "%Y-%m-%d"),
+    rating_after = round(rating_after, 1),
+    hover_text = paste0(
+      fmt_date(gamedate),
+      "<br>",
+      hover_result,
+      "<br>Rating ",
+      sprintf("%.1f", rating_after),
+      "<br>Rank ",
+      rank_after
+    )
+  )
+
+team_game_rows <- team_games |>
+  arrange(desc(gamedate), desc(gametype)) |>
+  transmute(
+    year_key,
     date_label = fmt_date(gamedate),
     gametype,
     team_name,
@@ -182,8 +133,168 @@ team_game_rows <- team_games |>
     rating_move_label = sprintf("%+.1f", rating_delta)
   )
 
-team_game_rows_json <- toJSON(team_game_rows, dataframe = "rows", auto_unbox = TRUE)
-team_default_date <- if (nrow(team_games) > 0) format(max(team_games$gamedate), "%Y-%m-%d") else format(Sys.Date(), "%Y-%m-%d")
+team_widget_payload <- list(
+  points = team_plot_rows,
+  games = team_game_rows,
+  defaultYear = default_year_key
+)
+
+team_plot_widget <- plot_ly() |>
+  layout(
+    paper_bgcolor = "rgba(0,0,0,0)",
+    plot_bgcolor = "rgba(255,255,255,0.96)",
+    margin = list(l = 48, r = 20, t = 20, b = 44),
+    xaxis = list(title = "", tickformat = "%Y/%m"),
+    yaxis = list(title = "RATING"),
+    showlegend = FALSE
+  ) |>
+  config(displayModeBar = FALSE, responsive = TRUE) |>
+  htmlwidgets::onRender(
+    "function(el, x, data) {
+      const selector = document.getElementById('team-view-year');
+      const tableTarget = document.getElementById('recent-games-table');
+      const countTarget = document.getElementById('recent-games-count');
+      const points = data.points || [];
+      const games = data.games || [];
+      const defaultYear = data.defaultYear || 'ALL';
+
+      function esc(v) {
+        return String(v ?? '').replace(/[&<>\\\"']/g, function(ch) {
+          return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'})[ch];
+        });
+      }
+
+      function parseDate(value) {
+        return new Date(value + 'T00:00:00');
+      }
+
+      function activeYear() {
+        return selector ? selector.value : defaultYear;
+      }
+
+      function filterPoints() {
+        const yearKey = activeYear();
+        return points.filter(function(row) {
+          return yearKey === 'ALL' || row.year_key === yearKey;
+        });
+      }
+
+      function filterGames() {
+        const yearKey = activeYear();
+        return games.filter(function(row) {
+          return yearKey === 'ALL' || row.year_key === yearKey;
+        });
+      }
+
+      function buildRangeBreaks(rows) {
+        if (rows.length < 2) {
+          return [];
+        }
+
+        const skipped = [];
+
+        for (let i = 1; i < rows.length; i += 1) {
+          const prev = parseDate(rows[i - 1].date);
+          const next = parseDate(rows[i].date);
+          const diff = Math.round((next - prev) / 86400000);
+
+          if (diff <= 10) {
+            continue;
+          }
+
+          const cursor = new Date(prev.getTime());
+          cursor.setDate(cursor.getDate() + 1);
+
+          while (cursor < next) {
+            skipped.push(cursor.toISOString().slice(0, 10));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        return skipped.length ? [{ values: skipped }] : [];
+      }
+
+      function renderPlot() {
+        const rows = filterPoints();
+
+        if (!rows.length) {
+          Plotly.react(el, [], {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(255,255,255,0.96)',
+            margin: { l: 48, r: 20, t: 20, b: 44 },
+            xaxis: { visible: false },
+            yaxis: { visible: false },
+            annotations: [{
+              text: 'NO DATA',
+              showarrow: false,
+              font: { size: 16, color: '#5f6c77' }
+            }]
+          }, { displayModeBar: false, responsive: true });
+          return;
+        }
+
+        Plotly.react(el, [{
+          x: rows.map(function(row) { return row.date; }),
+          y: rows.map(function(row) { return row.rating_after; }),
+          text: rows.map(function(row) { return row.hover_text; }),
+          hoverinfo: 'text',
+          type: 'scatter',
+          mode: 'lines+markers',
+          line: { color: '#17324A', width: 3 },
+          marker: { size: 6, color: '#17324A' }
+        }], {
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(255,255,255,0.96)',
+          margin: { l: 48, r: 20, t: 20, b: 44 },
+          xaxis: {
+            title: '',
+            tickformat: '%Y/%m',
+            rangebreaks: buildRangeBreaks(rows)
+          },
+          yaxis: { title: 'RATING' },
+          showlegend: false
+        }, { displayModeBar: false, responsive: true });
+      }
+
+      function renderGames() {
+        if (!tableTarget || !countTarget) {
+          return;
+        }
+
+        const rows = filterGames();
+        countTarget.textContent = rows.length + ' games';
+
+        if (!rows.length) {
+          tableTarget.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';
+          return;
+        }
+
+        const body = rows.map(function(row) {
+          return '<tr>' +
+            '<td>' + esc(row.date_label) + '</td>' +
+            '<td>' + esc(row.gametype) + '</td>' +
+            '<td class=\"matchup-col\"><a href=\"' + esc(row.team_url) + '\" style=\"color:' + esc(row.team_color) + '\" class=\"team-link-inline\">' + esc(row.team_name) + '</a><span class=\"score-inline\">' + esc(row.score_for) + ' - ' + esc(row.score_against) + '</span><a href=\"' + esc(row.opponent_url) + '\" style=\"color:' + esc(row.opponent_color) + '\" class=\"team-link-inline\">' + esc(row.opponent_name) + '</a></td>' +
+            '<td>' + esc(row.rating_move_label) + '</td>' +
+          '</tr>';
+        }).join('');
+
+        tableTarget.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+      }
+
+      function renderAll() {
+        renderPlot();
+        renderGames();
+      }
+
+      if (selector) {
+        selector.addEventListener('change', renderAll);
+        selector.value = defaultYear;
+      }
+
+      renderAll();
+    }",
+    data = team_widget_payload
+  )
 ```
 
 ::: {.minimal-hero}
@@ -191,7 +302,7 @@ team_default_date <- if (nrow(team_games) > 0) format(max(team_games$gamedate), 
 <h1 class="minimal-title">`r team_info$TeamName[[1]]`</h1>
 <div class="hero-meta-strip">
   <span>RANK `r team_current$rank[[1]]`</span>
-  <span>RATE `r sprintf('%.1f', team_current$display_rating[[1]])`</span>
+  <span>RATE `r sprintf("%.1f", team_current$display_rating[[1]])`</span>
   <span>LEAGUE `r team_info$LeagueName[[1]]`</span>
   <span>LAST `r fmt_date(team_current$last_gamedate[[1]])`</span>
 </div>
@@ -206,73 +317,66 @@ team_default_date <- if (nrow(team_games) > 0) format(max(team_games$gamedate), 
 ```{r record-cards}
 div(
   class = "metric-grid",
-  div(
-    class = "metric-card",
-    div(class = "metric-label", "CURRENT"),
-    div(class = "metric-value", sprintf("%.1f", team_current$display_rating[[1]])),
-    div(class = "metric-note", paste0("Rank ", team_current$rank[[1]], " / ", fmt_date(team_current$last_gamedate[[1]])))
+  record_card(
+    "CURRENT RATE",
+    sprintf("%.1f", team_current$display_rating[[1]]),
+    current_note
   ),
-  record_card("HIGHEST SINCE GAME 31", if (nrow(peak_game) > 0) sprintf("%.1f", peak_game$rating_after[[1]]) else "N/A", peak_game),
-  record_card("LOWEST SINCE GAME 31", if (nrow(low_game) > 0) sprintf("%.1f", low_game$rating_after[[1]]) else "N/A", low_game),
-  record_card("AVERAGE SINCE GAME 31", if (!is.na(scope_average)) sprintf("%.1f", scope_average) else "N/A", avg_game)
+  record_card(
+    "HIGHEST RATE",
+    if (nrow(peak_game) > 0) sprintf("%.1f", peak_game$rating_after[[1]]) else "N/A",
+    peak_note
+  ),
+  record_card(
+    "LOWEST RATE",
+    if (nrow(low_game) > 0) sprintf("%.1f", low_game$rating_after[[1]]) else "N/A",
+    low_note
+  ),
+  record_card(
+    "AVERAGE RATE",
+    if (!is.na(scope_average)) sprintf("%.1f", scope_average) else "N/A",
+    avg_note
+  )
 )
 ```
 
-## RATING / RANK TREND
+## RATING TREND
 
-```{r team-plot}
-team_plot
+```{r team-year-selector}
+div(
+  class = "browser-controls",
+  div(
+    class = "control-block",
+    tags$label(`for` = "team-view-year", class = "control-label", "VIEW"),
+    tags$select(
+      id = "team-view-year",
+      class = "control-input",
+      tags$option(value = "ALL", "ALL"),
+      lapply(team_year_options, function(year_value) {
+        tags$option(
+          value = year_value,
+          selected = if (year_value == default_year_key) "selected" else NULL,
+          year_value
+        )
+      })
+    )
+  )
+)
 ```
 
-## DAILY GAMES
+```{r team-plot}
+team_plot_widget
+```
 
-```{r team-games-panel}
+## RECENT GAMES
+
+```{r recent-games-shell}
 div(
   class = "game-panel",
   div(
     class = "game-panel-head",
-    tags$label(`for` = "team-games-date", class = "control-label", "DATE"),
-    tags$input(
-      id = "team-games-date",
-      class = "control-input",
-      type = "date",
-      value = team_default_date
-    ),
-    tags$div(id = "team-games-count", class = "table-count")
+    tags$div(id = "recent-games-count", class = "table-count")
   ),
-  tags$div(id = "team-games-table")
+  tags$div(id = "recent-games-table")
 )
-```
-
-```{r team-games-script}
-team_games_script <- paste0(
-  "(function(){",
-  "const rows = ", team_game_rows_json, ";",
-  "const input = document.getElementById('team-games-date');",
-  "const count = document.getElementById('team-games-count');",
-  "const target = document.getElementById('team-games-table');",
-  "if (!input || !count || !target) { return; }",
-  "function esc(v){ return String(v ?? '').replace(/[&<>\\\"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'})[ch]; }); }",
-  "function render(){",
-  "  const filtered = rows.filter(function(row){ return row.date === input.value; });",
-  "  count.textContent = filtered.length + ' games';",
-  "  if (!filtered.length) {",
-  "    target.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';",
-  "    return;",
-  "  }",
-  "  const body = filtered.map(function(row){",
-  "    return '<tr>' +",
-  "      '<td>' + esc(row.gametype) + '</td>' +",
-  "      '<td class=\"matchup-col\"><a href=\"' + esc(row.team_url) + '\" style=\"color:' + esc(row.team_color) + '\" class=\"team-link-inline\">' + esc(row.team_name) + '</a><span class=\"score-inline\">' + esc(row.score_for) + ' - ' + esc(row.score_against) + '</span><a href=\"' + esc(row.opponent_url) + '\" style=\"color:' + esc(row.opponent_color) + '\" class=\"team-link-inline\">' + esc(row.opponent_name) + '</a></td>' +",
-  "      '<td>' + esc(row.rating_move_label) + '</td>' +",
-  "    '</tr>';",
-  "  }).join('');",
-  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';",
-  "}",
-  "input.addEventListener('change', render);",
-  "render();",
-  "})();"
-)
-
-tags$script(HTML(team_games_script))
 ```
