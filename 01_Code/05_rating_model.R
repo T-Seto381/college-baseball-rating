@@ -540,70 +540,69 @@ attach_display_history <- function(history, init_r = INIT_RATING) {
     )
 }
 
-best_history <- attach_display_history(best_history)
-
-# ---- レーティングスナップショット（チーム×試合日）----
-rating_snapshot <- function(history) {
-  all_teams <- sort(unique(c(history$team1, history$team2)))
-
-  map_dfr(all_teams, function(tm) {
-    team_history <- history |>
-      filter(team1 == tm | team2 == tm) |>
-      mutate(rating_after = if_else(team1 == tm, r1_after, r2_after)) |>
-      transmute(date = gamedate, team = tm, rating = rating_after)
-
-    bind_rows(
-      tibble(
-        date   = min(team_history$date) - 1,
-        team   = tm,
-        rating = INIT_RATING
-      ),
-      team_history
-    )
-  }) |>
-    arrange(team, date) |>
-    group_by(team, date) |>
-    slice_tail(n = 1) |>
-    ungroup()
+add_event_metadata <- function(history) {
+  history |>
+    arrange(gamedate, gametype, team1, team2) |>
+    mutate(event_id = row_number()) |>
+    group_by(gamedate) |>
+    mutate(
+      event_index_on_date = row_number(),
+      events_on_date = n(),
+      event_seconds = if_else(
+        events_on_date <= 1L,
+        12L * 3600L,
+        6L * 3600L + round((event_index_on_date - 1L) * (12L * 3600L) / (events_on_date - 1L))
+      )
+    ) |>
+    ungroup() |>
+    mutate(
+      event_datetime = as.POSIXct(gamedate, tz = "Asia/Tokyo") + event_seconds
+    ) |>
+    select(-event_index_on_date, -events_on_date, -event_seconds)
 }
 
-snapshot <- rating_snapshot(best_history)
+build_rating_snapshots <- function(history, init_r = INIT_RATING) {
+  teams <- sort(unique(c(history$team1, history$team2)))
+  current_ratings <- setNames(rep(init_r, length(teams)), teams)
+  snapshots <- vector("list", nrow(history))
 
-# ---- 偏差値スケールの計算 ----
-# snapshotは試合があった日だけ記録されているため、
-# そのまま日付でグループ化すると2〜4チームしか揃わず正規化が不正確になる。
-# → 全チーム×全日付のグリッドを作り、前の試合後のレートをfill-forwardして
-#   常に全チーム揃った状態で正規化する。
+  for (i in seq_len(nrow(history))) {
+    team1 <- history$team1[[i]]
+    team2 <- history$team2[[i]]
 
-all_snapshot_dates <- sort(unique(snapshot$date))
-all_snapshot_teams <- sort(unique(snapshot$team))
+    current_ratings[[team1]] <- history$r1_after[[i]]
+    current_ratings[[team2]] <- history$r2_after[[i]]
 
-snapshot_full <- map_dfr(all_snapshot_teams, function(tm) {
-  team_snapshot <- snapshot |>
-    filter(team == tm) |>
-    arrange(date)
+    display_ratings <- setNames(to_hensachi(unname(current_ratings)), names(current_ratings))
 
-  tibble(
-    date = all_snapshot_dates[all_snapshot_dates >= min(team_snapshot$date)],
-    team = tm
-  ) |>
-    left_join(team_snapshot, by = c("date", "team")) |>
-    arrange(date) |>
-    fill(rating, .direction = "down")
-})
+    snapshots[[i]] <- tibble(
+      event_id = history$event_id[[i]],
+      date = history$gamedate[[i]],
+      event_datetime = history$event_datetime[[i]],
+      team = teams,
+      rating = unname(current_ratings),
+      display_rating = unname(display_ratings)
+    )
+  }
 
-snapshot_with_hensachi <- snapshot_full |>
-  group_by(date) |>
-  mutate(display_rating = to_hensachi(rating)) |>  # 全6チーム揃った状態で正規化
-  ungroup()
+  bind_rows(snapshots)
+}
+
+best_history <- best_history |>
+  add_event_metadata() |>
+  attach_display_history()
+
+snapshot_with_hensachi <- build_rating_snapshots(best_history)
 
 # ---- 試合履歴（Web表示用）----
 game_results_with_ratings <- best_history |>
   mutate(
     season = if_else(month(gamedate) <= 8, "春", "秋"),
-    year   = year(gamedate)
+    year   = year(gamedate),
+    event_datetime = format(event_datetime, "%Y-%m-%dT%H:%M:%S")
   ) |>
   select(
+    event_id, event_datetime,
     gamedate, year, season, gametype,
     team1, r1_before, display_r1_before,
     score1, score2,
@@ -617,21 +616,23 @@ write_excel_csv(game_results_with_ratings,
                 "data_out/ratings/game_results_with_ratings.csv")
 
 # ---- 最終レーティング（偏差値スケール付き）----
-# 全チームの最新レートを一度に取得し、同じ基準で正規化する
-final_ratings <- snapshot |>
-  group_by(team) |>
-  slice_tail(n = 1) |>
-  ungroup() |>
-  arrange(desc(rating)) |>
+# 最新イベントの全チームスナップショットをそのまま採用する
+final_ratings <- snapshot_with_hensachi |>
+  filter(event_id == max(event_id)) |>
+  arrange(desc(display_rating), team) |>
   mutate(
-    rank           = row_number(),
-    display_rating = to_hensachi(rating)  # 全チーム揃った状態で一括正規化
+    event_datetime = format(event_datetime, "%Y-%m-%dT%H:%M:%S"),
+    rank = row_number()
   )
 
 write_excel_csv(final_ratings, "data_out/ratings/final_ratings.csv")
 
 # ---- レーティング推移（偏差値スケール付き）----
-write_excel_csv(snapshot_with_hensachi, "data_out/ratings/rating_history.csv")
+write_excel_csv(
+  snapshot_with_hensachi |>
+    mutate(event_datetime = format(event_datetime, "%Y-%m-%dT%H:%M:%S")),
+  "data_out/ratings/rating_history.csv"
+)
 
 # グリッドサーチ結果保存
 write_excel_csv(opt_elo$grid, "logs/grid_elo.csv")

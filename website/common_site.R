@@ -63,13 +63,22 @@ games_url <- function(prefix = nav_prefix) {
 }
 
 final_ratings <- read_csv(file.path(data_root, "ratings", "final_ratings.csv"), show_col_types = FALSE) |>
-  mutate(date = as.Date(date))
+  mutate(
+    date = as.Date(date),
+    event_datetime = ymd_hms(event_datetime, tz = "Asia/Tokyo", quiet = TRUE)
+  )
 
 rating_hist <- read_csv(file.path(data_root, "ratings", "rating_history.csv"), show_col_types = FALSE) |>
-  mutate(date = as.Date(date))
+  mutate(
+    date = as.Date(date),
+    event_datetime = ymd_hms(event_datetime, tz = "Asia/Tokyo", quiet = TRUE)
+  )
 
 game_results <- read_csv(file.path(data_root, "ratings", "game_results_with_ratings.csv"), show_col_types = FALSE) |>
-  mutate(gamedate = as.Date(gamedate))
+  mutate(
+    gamedate = as.Date(gamedate),
+    event_datetime = ymd_hms(event_datetime, tz = "Asia/Tokyo", quiet = TRUE)
+  )
 
 teams_info <- read_excel(file.path(data_root, "teamdata.xlsx")) |>
   mutate(
@@ -189,53 +198,68 @@ team_link <- function(team, label = NULL, prefix = nav_prefix) {
   )
 }
 
-snapshot_dates <- sort(unique(rating_hist$date[rating_hist$date <= Sys.Date()]))
-latest_snapshot_date <- max(snapshot_dates)
-prev_snapshot_date <- max(snapshot_dates[snapshot_dates < latest_snapshot_date])
+snapshot_ids <- sort(unique(rating_hist$event_id[rating_hist$date <= Sys.Date()]))
+latest_snapshot_id <- max(snapshot_ids)
+prev_snapshot_id <- if (length(snapshot_ids) >= 2) snapshot_ids[[length(snapshot_ids) - 1]] else NA_integer_
+latest_snapshot_date <- rating_hist |>
+  filter(event_id == latest_snapshot_id) |>
+  summarise(date = max(date), .groups = "drop") |>
+  pull(date)
+prev_snapshot_date <- if (is.na(prev_snapshot_id)) {
+  as.Date(NA)
+} else {
+  rating_hist |>
+    filter(event_id == prev_snapshot_id) |>
+    summarise(date = max(date), .groups = "drop") |>
+    pull(date)
+}
 latest_game_date <- max(game_results$gamedate[game_results$gamedate <= Sys.Date()])
 current_year <- max(year(game_results$gamedate[game_results$gamedate <= Sys.Date()]))
 available_years <- sort(unique(year(game_results$gamedate[game_results$gamedate <= Sys.Date()])))
 
 rank_history <- rating_hist |>
   filter(date <= Sys.Date()) |>
-  arrange(date, desc(display_rating), team) |>
-  group_by(date) |>
+  arrange(event_id, desc(display_rating), team) |>
+  group_by(event_id, date, event_datetime) |>
   mutate(rank = row_number()) |>
   ungroup()
 
+snapshot_events <- rank_history |>
+  distinct(event_id, date, event_datetime)
+
 team_league_events <- bind_rows(
   game_results |>
-    transmute(gamedate, team = team1, LeagueName = infer_league_name(gametype)),
+    transmute(event_id, date = gamedate, event_datetime, team = team1, LeagueName = infer_league_name(gametype)),
   game_results |>
-    transmute(gamedate, team = team2, LeagueName = infer_league_name(gametype))
+    transmute(event_id, date = gamedate, event_datetime, team = team2, LeagueName = infer_league_name(gametype))
 ) |>
   filter(!is.na(LeagueName)) |>
-  arrange(team, gamedate, LeagueName) |>
-  group_by(team, gamedate) |>
-  slice_tail(n = 1) |>
-  ungroup()
+  distinct(event_id, team, .keep_all = TRUE)
 
 team_league_history <- expand_grid(
-  date = sort(unique(rank_history$date)),
+  event_id = sort(unique(rank_history$event_id)),
   team = sort(unique(rank_history$team))
 ) |>
+  left_join(snapshot_events, by = "event_id") |>
   left_join(
     team_league_events |>
-      rename(date = gamedate),
-    by = c("date", "team")
+      select(event_id, team, LeagueName),
+    by = c("event_id", "team")
   ) |>
-  arrange(team, date) |>
+  arrange(team, event_id) |>
   group_by(team) |>
   fill(LeagueName, .direction = "downup") |>
   ungroup()
 
 current_prev_ranks <- rank_history |>
-  filter(date == prev_snapshot_date) |>
+  filter(event_id == prev_snapshot_id) |>
   select(team, prev_rank = rank)
 
 team_game_log <- bind_rows(
   game_results |>
     transmute(
+      event_id,
+      event_datetime,
       gamedate,
       year,
       season,
@@ -250,6 +274,8 @@ team_game_log <- bind_rows(
     ),
   game_results |>
     transmute(
+      event_id,
+      event_datetime,
       gamedate,
       year,
       season,
@@ -277,8 +303,8 @@ team_game_log <- bind_rows(
   rename(opponent_name = TeamName, opponent_color = c1) |>
   left_join(
     rank_history |>
-      select(gamedate = date, team, rank_after = rank),
-    by = c("gamedate", "team")
+      select(event_id, team, rank_after = rank),
+    by = c("event_id", "team")
   ) |>
   mutate(
     result = case_when(
@@ -288,25 +314,30 @@ team_game_log <- bind_rows(
     ),
     score_label = paste0(score_for, "-", score_against),
     matchup_label = paste(team_name, opponent_name, sep = " vs "),
-    hover_result = paste0(team_name, " ", score_for, "-", score_against, " ", opponent_name)
+    hover_result = paste0(team_name, " ", score_for, "-", score_against, " ", opponent_name),
+    rating_move_abs = round(abs(rating_delta), 1)
   )
 
 form_lookup <- team_game_log |>
-  arrange(team, desc(gamedate)) |>
+  arrange(team, desc(event_id)) |>
   group_by(team) |>
   slice_head(n = 3) |>
   summarise(last3 = paste(result, collapse = ""), .groups = "drop")
 
 last_game_lookup <- team_game_log |>
   group_by(team) |>
-  summarise(last_gamedate = max(gamedate), .groups = "drop")
+  summarise(
+    last_event_id = max(event_id),
+    last_gamedate = gamedate[which.max(event_id)],
+    .groups = "drop"
+  )
 
 current_team_leagues <- team_league_history |>
-  filter(date == latest_snapshot_date) |>
+  filter(event_id == latest_snapshot_id) |>
   select(team, LeagueName)
 
 prev_team_leagues <- team_league_history |>
-  filter(date == prev_snapshot_date) |>
+  filter(event_id == prev_snapshot_id) |>
   select(team, LeagueName)
 
 current_team_table <- final_ratings |>
@@ -322,7 +353,7 @@ current_team_table <- final_ratings |>
   arrange(rank)
 
 prev_league_table <- rank_history |>
-  filter(date == prev_snapshot_date) |>
+  filter(event_id == prev_snapshot_id) |>
   left_join(prev_team_leagues, by = "team") |>
   filter(!is.na(LeagueName)) |>
   group_by(LeagueName) |>
@@ -347,11 +378,21 @@ current_league_table <- current_team_table |>
   mutate(rank_change = if_else(is.na(prev_rank), NA_integer_, prev_rank - rank))
 
 league_history <- rank_history |>
-  left_join(team_league_history, by = c("date", "team")) |>
+  left_join(
+    team_league_history |>
+      select(event_id, team, LeagueName),
+    by = c("event_id", "team")
+  ) |>
   filter(!is.na(LeagueName)) |>
-  group_by(date, LeagueName) |>
+  group_by(event_id, date, event_datetime, LeagueName) |>
   summarise(display_rating = round(mean(display_rating), 1), .groups = "drop") |>
-  arrange(LeagueName, date) |>
+  inner_join(
+    game_results |>
+      transmute(event_id, LeagueName = infer_league_name(gametype)) |>
+      distinct(),
+    by = c("event_id", "LeagueName")
+  ) |>
+  arrange(LeagueName, event_id) |>
   mutate(year = year(date))
 
 games_display <- game_results |>
@@ -369,6 +410,8 @@ games_display <- game_results |>
     score_label = paste0(score1, " - ", score2),
     rating_move_team1 = round(display_delta1, 1),
     rating_move_team2 = round(display_delta2, 1),
+    rating_move_value = round(abs(display_delta1), 1),
+    total_level = round(display_r1_before + display_r2_before, 1),
     rating_move_label = paste0(
       team1_name, " ", sprintf("%+.1f", rating_move_team1),
       " / ",
@@ -378,21 +421,7 @@ games_display <- game_results |>
     team1_url = team_url(team1),
     team2_url = team_url(team2)
   ) |>
-  arrange(desc(gamedate), team1_name, team2_name)
-
-highlight_games <- games_display |>
-  mutate(
-    total_level = round(display_r1_before + display_r2_before, 1),
-    total_movement = round(abs(rating_move_team1), 1)
-  )
-
-highest_level_game <- highlight_games |>
-  arrange(desc(total_level), desc(gamedate)) |>
-  slice_head(n = 1)
-
-largest_movement_game <- highlight_games |>
-  arrange(desc(total_movement), desc(gamedate)) |>
-  slice_head(n = 1)
+  arrange(desc(event_id), team1_name, team2_name)
 
 build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALSE, show_pagination = FALSE, prefix = nav_prefix) {
   reactable(
@@ -448,6 +477,11 @@ build_university_table <- function(tbl, page_size = nrow(tbl), searchable = FALS
         cell = function(v) change_html(v)
       ),
       team = colDef(show = FALSE),
+      rating = colDef(show = FALSE),
+      date = colDef(show = FALSE),
+      event_id = colDef(show = FALSE),
+      event_datetime = colDef(show = FALSE),
+      last_event_id = colDef(show = FALSE),
       c1 = colDef(show = FALSE),
       c2 = colDef(show = FALSE),
       c3 = colDef(show = FALSE),

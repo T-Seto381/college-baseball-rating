@@ -13,6 +13,7 @@ year_end_default <- sprintf("%d-12-31", current_year)
 
 games_page_data <- games_display |>
   transmute(
+    event_id,
     date = format(gamedate, "%Y-%m-%d"),
     date_label,
     season,
@@ -25,8 +26,10 @@ games_page_data <- games_display |>
     team2_name,
     team2_url,
     team2_color,
+    score1,
+    score2,
     score_label,
-    rating_move_label
+    rating_move_value
   )
 
 games_page_json <- toJSON(games_page_data, dataframe = "rows", auto_unbox = TRUE)
@@ -88,6 +91,28 @@ div(
       type = "date",
       value = year_end_default
     )
+  ),
+  div(
+    class = "control-block control-block-year",
+    tags$label(`for` = "games-sort", class = "control-label", "SORT"),
+    tags$select(
+      id = "games-sort",
+      class = "control-input",
+      tags$option(value = "LATEST", "LATEST"),
+      tags$option(value = "SCORED", "SCORED"),
+      tags$option(value = "ALLOWED", "ALLOWED"),
+      tags$option(value = "MOVE", "RATING MOVE")
+    )
+  ),
+  div(
+    class = "control-block control-block-year",
+    tags$label(`for` = "games-direction", class = "control-label", "ORDER"),
+    tags$select(
+      id = "games-direction",
+      class = "control-input",
+      tags$option(value = "DESC", "DESC"),
+      tags$option(value = "ASC", "ASC")
+    )
   )
 )
 ```
@@ -103,11 +128,27 @@ games_script <- paste0(
   "const typeSelect = document.getElementById('games-type-filter');",
   "const startInput = document.getElementById('games-date-start');",
   "const endInput = document.getElementById('games-date-end');",
+  "const sortSelect = document.getElementById('games-sort');",
+  "const directionSelect = document.getElementById('games-direction');",
   "const count = document.getElementById('games-page-count');",
   "const target = document.getElementById('games-page-table');",
   "if (!teamSelect || !typeSelect || !startInput || !endInput || !count || !target) { return; }",
   "function esc(v){ return String(v ?? '').replace(/[&<>\\\"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'})[ch]; }); }",
   "function selectedValues(node){ return Array.from(node.selectedOptions).map(function(opt){ return opt.value; }); }",
+  "function scoredValue(row, teams){",
+  "  if (teams.length === 1) {",
+  "    if (row.team1 === teams[0]) { return Number(row.score1); }",
+  "    if (row.team2 === teams[0]) { return Number(row.score2); }",
+  "  }",
+  "  return Math.max(Number(row.score1), Number(row.score2));",
+  "}",
+  "function allowedValue(row, teams){",
+  "  if (teams.length === 1) {",
+  "    if (row.team1 === teams[0]) { return Number(row.score2); }",
+  "    if (row.team2 === teams[0]) { return Number(row.score1); }",
+  "  }",
+  "  return Math.min(Number(row.score1), Number(row.score2));",
+  "}",
   "function filterRows(){",
   "  const teams = selectedValues(teamSelect);",
   "  const types = selectedValues(typeSelect);",
@@ -120,8 +161,27 @@ games_script <- paste0(
   "    return teamOk && typeOk && dateOk;",
   "  });",
   "}",
+  "function sortRows(rows, teams){",
+  "  const key = sortSelect ? sortSelect.value : 'LATEST';",
+  "  const direction = directionSelect && directionSelect.value === 'ASC' ? 1 : -1;",
+  "  return rows.slice().sort(function(a, b){",
+  "    let diff = 0;",
+  "    if (key === 'SCORED') {",
+  "      diff = scoredValue(a, teams) - scoredValue(b, teams);",
+  "    } else if (key === 'ALLOWED') {",
+  "      diff = allowedValue(a, teams) - allowedValue(b, teams);",
+  "    } else if (key === 'MOVE') {",
+  "      diff = Number(a.rating_move_value) - Number(b.rating_move_value);",
+  "    } else {",
+  "      diff = Number(a.event_id) - Number(b.event_id);",
+  "    }",
+  "    if (diff === 0) { diff = Number(a.event_id) - Number(b.event_id); }",
+  "    return diff * direction;",
+  "  });",
+  "}",
   "function render(){",
-  "  const filtered = filterRows();",
+  "  const teams = selectedValues(teamSelect);",
+  "  const filtered = sortRows(filterRows(), teams);",
   "  count.textContent = filtered.length + ' games';",
   "  if (!filtered.length) {",
   "    target.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';",
@@ -133,12 +193,12 @@ games_script <- paste0(
   "      '<td>' + esc(row.season) + '</td>' +",
   "      '<td>' + esc(row.gametype) + '</td>' +",
   "      '<td class=\"matchup-col\"><a href=\"' + esc(row.team1_url) + '\" style=\"color:' + esc(row.team1_color) + '\" class=\"team-link-inline\">' + esc(row.team1_name) + '</a><span class=\"score-inline\">' + esc(row.score_label) + '</span><a href=\"' + esc(row.team2_url) + '\" style=\"color:' + esc(row.team2_color) + '\" class=\"team-link-inline\">' + esc(row.team2_name) + '</a></td>' +",
-  "      '<td>' + esc(row.rating_move_label) + '</td>' +",
+  "      '<td>' + esc(Number(row.rating_move_value).toFixed(1)) + '</td>' +",
   "    '</tr>';",
   "  }).join('');",
-  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>SEASON</th><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';",
+  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>SEASON</th><th>TYPE</th><th>MATCHUP</th><th>RATE MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';",
   "}",
-  "[teamSelect, typeSelect, startInput, endInput].forEach(function(node){ node.addEventListener('change', render); });",
+  "[teamSelect, typeSelect, startInput, endInput, sortSelect, directionSelect].forEach(function(node){ if (node) { node.addEventListener('change', render); } });",
   "render();",
   "})();"
 )

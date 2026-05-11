@@ -13,6 +13,7 @@ top_league_count <- min(10, nrow(current_league_table))
 
 home_games_data <- games_display |>
   transmute(
+    event_id,
     date = format(gamedate, "%Y-%m-%d"),
     date_label,
     gametype,
@@ -21,10 +22,12 @@ home_games_data <- games_display |>
     team1_color,
     score1,
     score2,
+    score_label,
     team2_name,
     team2_url,
     team2_color,
-    rating_move_label
+    total_level,
+    rating_move_value
   )
 
 home_games_json <- toJSON(home_games_data, dataframe = "rows", auto_unbox = TRUE)
@@ -45,7 +48,6 @@ today_value <- format(Sys.Date(), "%Y-%m-%d")
 ::: {.anchor-nav}
 <a href="#latest-univ-ranking">LATEST UNIV RANKING</a>
 <a href="#latest-league-ranking">LATEST LEAGUE RANKING</a>
-<a href="#key-games">KEY GAMES</a>
 <a href="#daily-games">DAILY GAMES</a>
 :::
 
@@ -83,16 +85,6 @@ div(
   <a href="explore.html#league-browser" class="directory-link">すべてのリーグを見る</a>
 </div>
 
-## KEY GAMES {#key-games}
-
-```{r key-games}
-div(
-  class = "feature-grid",
-  build_highlight_card(highest_level_game, "HIGHEST LEVEL GAME"),
-  build_highlight_card(largest_movement_game, "BIGGEST RATING MOVE")
-)
-```
-
 ## DAILY GAMES {#daily-games}
 
 ```{r daily-games-controls}
@@ -100,12 +92,39 @@ div(
   class = "game-panel",
   div(
     class = "game-panel-head",
-    tags$label(`for` = "home-games-date", class = "control-label", "DATE"),
-    tags$input(
-      id = "home-games-date",
-      class = "control-input",
-      type = "date",
-      value = today_value
+    div(
+      class = "browser-controls browser-controls-wide",
+      div(
+        class = "control-block control-block-year",
+        tags$label(`for` = "home-games-date", class = "control-label", "DATE"),
+        tags$input(
+          id = "home-games-date",
+          class = "control-input",
+          type = "date",
+          value = today_value
+        )
+      ),
+      div(
+        class = "control-block control-block-year",
+        tags$label(`for` = "home-games-sort", class = "control-label", "SORT"),
+        tags$select(
+          id = "home-games-sort",
+          class = "control-input",
+          tags$option(value = "LATEST", "LATEST"),
+          tags$option(value = "LEVEL", "TOTAL RATE"),
+          tags$option(value = "MOVE", "RATE MOVE")
+        )
+      ),
+      div(
+        class = "control-block control-block-year",
+        tags$label(`for` = "home-games-direction", class = "control-label", "ORDER"),
+        tags$select(
+          id = "home-games-direction",
+          class = "control-input",
+          tags$option(value = "DESC", "DESC"),
+          tags$option(value = "ASC", "ASC")
+        )
+      )
     ),
     tags$div(id = "home-games-count", class = "table-count")
   ),
@@ -118,13 +137,32 @@ home_games_script <- paste0(
   "(function(){",
   "const games = ", home_games_json, ";",
   "const input = document.getElementById('home-games-date');",
+  "const sortSelect = document.getElementById('home-games-sort');",
+  "const directionSelect = document.getElementById('home-games-direction');",
   "const target = document.getElementById('home-games-table');",
   "const count = document.getElementById('home-games-count');",
   "if (!input || !target || !count) { return; }",
   "function esc(v){ return String(v ?? '').replace(/[&<>\\\"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'})[ch]; }); }",
+  "function sortRows(rows){",
+  "  const key = sortSelect ? sortSelect.value : 'LATEST';",
+  "  const direction = directionSelect && directionSelect.value === 'ASC' ? 1 : -1;",
+  "  return rows.slice().sort(function(a, b){",
+  "    let diff = 0;",
+  "    if (key === 'LEVEL') {",
+  "      diff = Number(a.total_level) - Number(b.total_level);",
+  "    } else if (key === 'MOVE') {",
+  "      diff = Number(a.rating_move_value) - Number(b.rating_move_value);",
+  "    } else {",
+  "      diff = Number(a.event_id) - Number(b.event_id);",
+  "    }",
+  "    if (diff === 0) { diff = Number(a.event_id) - Number(b.event_id); }",
+  "    return diff * direction;",
+  "  });",
+  "}",
   "function render(){",
   "  const value = input.value;",
-  "  const rows = games.filter(function(row){ return row.date === value; });",
+  "  const filtered = games.filter(function(row){ return row.date === value; });",
+  "  const rows = sortRows(filtered);",
   "  count.textContent = rows.length + ' games';",
   "  if (!rows.length) {",
   "    target.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';",
@@ -133,13 +171,16 @@ home_games_script <- paste0(
   "  const html = rows.map(function(row){",
   "    return '<tr>' +",
   "      '<td>' + esc(row.gametype) + '</td>' +",
-  "      '<td class=\"matchup-col\"><a href=\"' + esc(row.team1_url) + '\" style=\"color:' + esc(row.team1_color) + '\" class=\"team-link-inline\">' + esc(row.team1_name) + '</a><span class=\"score-inline\">' + esc(row.score1) + ' - ' + esc(row.score2) + '</span><a href=\"' + esc(row.team2_url) + '\" style=\"color:' + esc(row.team2_color) + '\" class=\"team-link-inline\">' + esc(row.team2_name) + '</a></td>' +",
-  "      '<td>' + esc(row.rating_move_label) + '</td>' +",
+  "      '<td class=\"matchup-col\"><a href=\"' + esc(row.team1_url) + '\" style=\"color:' + esc(row.team1_color) + '\" class=\"team-link-inline\">' + esc(row.team1_name) + '</a><span class=\"score-inline\">' + esc(row.score_label) + '</span><a href=\"' + esc(row.team2_url) + '\" style=\"color:' + esc(row.team2_color) + '\" class=\"team-link-inline\">' + esc(row.team2_name) + '</a></td>' +",
+  "      '<td>' + esc(Number(row.total_level).toFixed(1)) + '</td>' +",
+  "      '<td>' + esc(Number(row.rating_move_value).toFixed(1)) + '</td>' +",
   "    '</tr>';",
   "  }).join('');",
-  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + html + '</tbody></table></div>';",
+  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>TYPE</th><th>MATCHUP</th><th>TOTAL RATE</th><th>RATE MOVE</th></tr></thead><tbody>' + html + '</tbody></table></div>';",
   "}",
   "input.addEventListener('change', render);",
+  "if (sortSelect) { sortSelect.addEventListener('change', render); }",
+  "if (directionSelect) { directionSelect.addEventListener('change', render); }",
   "render();",
   "})();"
 )

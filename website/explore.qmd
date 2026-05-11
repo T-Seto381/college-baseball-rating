@@ -8,25 +8,29 @@ format:
 ```{r setup}
 source("common_site.R", local = TRUE)
 
-team_series <- rating_hist |>
-  filter(date <= Sys.Date()) |>
-  left_join(team_meta, by = "team") |>
-  filter(!is.na(TeamName)) |>
-  arrange(team, date) |>
+team_series <- team_game_log |>
+  filter(gamedate <= Sys.Date()) |>
+  arrange(team, event_id) |>
   transmute(
     team,
-    TeamName,
-    color = c1,
-    date = format(date, "%Y-%m-%d"),
-    rating = round(display_rating, 1),
-    year = year(date)
+    event_id,
+    TeamName = team_name,
+    color = team_color,
+    event_datetime,
+    x_value = format(event_datetime, "%Y-%m-%dT%H:%M:%S"),
+    date_key = format(gamedate, "%Y-%m-%d"),
+    rating = round(rating_after, 1),
+    year = year
   )
 
 league_series <- league_history |>
-  arrange(LeagueName, date) |>
+  arrange(LeagueName, event_id) |>
   transmute(
+    event_id,
     league = LeagueName,
-    date = format(date, "%Y-%m-%d"),
+    event_datetime,
+    x_value = format(event_datetime, "%Y-%m-%dT%H:%M:%S"),
+    date_key = format(date, "%Y-%m-%d"),
     rating = display_rating,
     year
   )
@@ -88,7 +92,7 @@ build_team_plot <- function(selected_teams, start_year, end_year) {
 
   plot_ly(
     plot_df,
-    x = ~as.Date(date),
+    x = ~event_datetime,
     y = ~rating,
     color = ~TeamName,
     colors = setNames(plot_df$color, plot_df$TeamName),
@@ -104,7 +108,7 @@ build_team_plot <- function(selected_teams, start_year, end_year) {
       xaxis = list(
         title = "",
         tickformat = "%Y/%m",
-        rangebreaks = build_rangebreaks(plot_df$date)
+        rangebreaks = build_rangebreaks(plot_df$date_key)
       ),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
@@ -134,7 +138,7 @@ build_league_plot <- function(selected_leagues, start_year, end_year) {
 
   plot_ly(
     plot_df,
-    x = ~as.Date(date),
+    x = ~event_datetime,
     y = ~rating,
     color = ~league,
     type = "scatter",
@@ -149,7 +153,7 @@ build_league_plot <- function(selected_leagues, start_year, end_year) {
       xaxis = list(
         title = "",
         tickformat = "%Y/%m",
-        rangebreaks = build_rangebreaks(plot_df$date)
+        rangebreaks = build_rangebreaks(plot_df$date_key)
       ),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
@@ -273,14 +277,14 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
               hovertemplate: '%{x|%Y/%m/%d}<br>' + row.TeamName + ': %{y:.1f}<extra></extra>'
             };
           }
-          grouped[row.team].x.push(row.date);
+          grouped[row.team].x.push(row.x_value);
           grouped[row.team].y.push(row.rating);
         });
         return Object.keys(grouped).map(function(key) { return grouped[key]; });
       }
 
       function buildRangeBreaks(filtered) {
-        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date; }))).sort();
+        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date_key; }))).sort();
 
         if (uniqueDates.length < 2) {
           return [];
@@ -437,14 +441,14 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
               hovertemplate: '%{x|%Y/%m/%d}<br>' + row.league + ': %{y:.1f}<extra></extra>'
             };
           }
-          grouped[row.league].x.push(row.date);
+          grouped[row.league].x.push(row.x_value);
           grouped[row.league].y.push(row.rating);
         });
         return Object.keys(grouped).map(function(key) { return grouped[key]; });
       }
 
       function buildRangeBreaks(filtered) {
-        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date; }))).sort();
+        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date_key; }))).sort();
 
         if (uniqueDates.length < 2) {
           return [];

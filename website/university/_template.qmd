@@ -21,7 +21,7 @@ team_current <- current_team_table |>
 
 team_games <- team_game_log |>
   filter(team == TEAM) |>
-  arrange(gamedate) |>
+  arrange(event_id) |>
   mutate(
     game_number = row_number(),
     year_value = year(gamedate)
@@ -31,7 +31,7 @@ team_scope <- team_games |>
   filter(game_number >= 31)
 
 team_average_table <- team_game_log |>
-  arrange(team, gamedate) |>
+  arrange(team, event_id) |>
   group_by(team) |>
   mutate(game_number = row_number()) |>
   filter(game_number >= 31) |>
@@ -42,11 +42,11 @@ team_average_table <- team_game_log |>
 scope_average <- if (nrow(team_scope) > 0) round(mean(team_scope$rating_after), 1) else NA_real_
 
 peak_game <- team_scope |>
-  arrange(desc(rating_after), desc(gamedate)) |>
+  arrange(desc(rating_after), desc(event_id)) |>
   slice_head(n = 1)
 
 low_game <- team_scope |>
-  arrange(rating_after, desc(gamedate)) |>
+  arrange(rating_after, desc(event_id)) |>
   slice_head(n = 1)
 
 avg_rank_row <- team_average_table |>
@@ -104,7 +104,9 @@ default_year_value <- if (current_year %in% team_year_options) {
 team_plot_rows <- team_games |>
   transmute(
     year_value,
-    date = format(gamedate, "%Y-%m-%d"),
+    event_id,
+    x_value = format(event_datetime, "%Y-%m-%dT%H:%M:%S"),
+    date_key = format(gamedate, "%Y-%m-%d"),
     rating_after = round(rating_after, 1),
     hover_text = paste0(
       fmt_date(gamedate),
@@ -118,20 +120,19 @@ team_plot_rows <- team_games |>
   )
 
 team_game_rows <- team_games |>
-  arrange(desc(gamedate), desc(gametype)) |>
+  arrange(desc(event_id)) |>
   transmute(
     year_value,
+    event_id,
     date_label = fmt_date(gamedate),
     gametype,
-    team_name,
-    team_url = team_url(team),
-    team_color,
-    score_for,
-    score_against,
     opponent_name,
     opponent_url = team_url(opponent),
     opponent_color,
-    rating_move_label = sprintf("%+.1f", rating_delta)
+    score_for,
+    score_against,
+    rating_move = round(rating_delta, 1),
+    rating_move_abs = round(abs(rating_delta), 1)
   )
 
 team_widget_payload <- list(
@@ -160,6 +161,8 @@ team_plot_widget <- plot_ly() |>
       const rangeLabel = document.getElementById('team-range-label');
       const tableTarget = document.getElementById('recent-games-table');
       const countTarget = document.getElementById('recent-games-count');
+      const sortSelector = document.getElementById('recent-games-sort');
+      const directionSelector = document.getElementById('recent-games-direction');
       const points = data.points || [];
       const games = data.games || [];
       const defaultMode = data.defaultMode || 'RANGE';
@@ -174,6 +177,31 @@ team_plot_widget <- plot_ly() |>
 
       function parseDate(value) {
         return new Date(value + 'T00:00:00');
+      }
+
+      function sortGames(rows) {
+        const key = sortSelector ? sortSelector.value : 'LATEST';
+        const direction = directionSelector && directionSelector.value === 'ASC' ? 1 : -1;
+
+        return rows.slice().sort(function(a, b) {
+          let diff = 0;
+
+          if (key === 'SCORED') {
+            diff = Number(a.score_for) - Number(b.score_for);
+          } else if (key === 'ALLOWED') {
+            diff = Number(a.score_against) - Number(b.score_against);
+          } else if (key === 'MOVE') {
+            diff = Number(a.rating_move_abs) - Number(b.rating_move_abs);
+          } else {
+            diff = Number(a.event_id) - Number(b.event_id);
+          }
+
+          if (diff === 0) {
+            diff = Number(a.event_id) - Number(b.event_id);
+          }
+
+          return diff * direction;
+        });
       }
 
       function activeRange() {
@@ -213,11 +241,14 @@ team_plot_widget <- plot_ly() |>
           return [];
         }
 
+        const uniqueDates = Array.from(new Set(rows.map(function(row) {
+          return row.date_key;
+        }))).sort();
         const skipped = [];
 
-        for (let i = 1; i < rows.length; i += 1) {
-          const prev = parseDate(rows[i - 1].date);
-          const next = parseDate(rows[i].date);
+        for (let i = 1; i < uniqueDates.length; i += 1) {
+          const prev = parseDate(uniqueDates[i - 1]);
+          const next = parseDate(uniqueDates[i]);
           const cursor = new Date(prev.getTime());
           cursor.setDate(cursor.getDate() + 1);
 
@@ -278,7 +309,7 @@ team_plot_widget <- plot_ly() |>
         }
 
         Plotly.react(el, [{
-          x: rows.map(function(row) { return row.date; }),
+          x: rows.map(function(row) { return row.x_value; }),
           y: rows.map(function(row) { return row.rating_after; }),
           text: rows.map(function(row) { return row.hover_text; }),
           hoverinfo: 'text',
@@ -306,23 +337,26 @@ team_plot_widget <- plot_ly() |>
         }
 
         const rows = filterGames();
-        countTarget.textContent = rows.length + ' games';
+        const sortedRows = sortGames(rows);
+        countTarget.textContent = sortedRows.length + ' games';
 
-        if (!rows.length) {
+        if (!sortedRows.length) {
           tableTarget.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';
           return;
         }
 
-        const body = rows.map(function(row) {
+        const body = sortedRows.map(function(row) {
           return '<tr>' +
             '<td>' + esc(row.date_label) + '</td>' +
             '<td>' + esc(row.gametype) + '</td>' +
-            '<td class=\"matchup-col\"><a href=\"' + esc(row.team_url) + '\" style=\"color:' + esc(row.team_color) + '\" class=\"team-link-inline\">' + esc(row.team_name) + '</a><span class=\"score-inline\">' + esc(row.score_for) + ' - ' + esc(row.score_against) + '</span><a href=\"' + esc(row.opponent_url) + '\" style=\"color:' + esc(row.opponent_color) + '\" class=\"team-link-inline\">' + esc(row.opponent_name) + '</a></td>' +
-            '<td>' + esc(row.rating_move_label) + '</td>' +
+            '<td class=\"matchup-col\"><a href=\"' + esc(row.opponent_url) + '\" style=\"color:' + esc(row.opponent_color) + '\" class=\"team-link-inline\">' + esc(row.opponent_name) + '</a></td>' +
+            '<td>' + esc(row.score_for) + '</td>' +
+            '<td>' + esc(row.score_against) + '</td>' +
+            '<td>' + esc(row.rating_move.toFixed(1)) + '</td>' +
           '</tr>';
         }).join('');
 
-        tableTarget.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+        tableTarget.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>TYPE</th><th>OPPONENT</th><th>SCORED</th><th>ALLOWED</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';
       }
 
       function renderAll() {
@@ -344,6 +378,14 @@ team_plot_widget <- plot_ly() |>
       if (endSelector) {
         endSelector.addEventListener('change', renderAll);
         endSelector.value = String(defaultEndYear);
+      }
+
+      if (sortSelector) {
+        sortSelector.addEventListener('change', renderGames);
+      }
+
+      if (directionSelector) {
+        directionSelector.addEventListener('change', renderGames);
       }
 
       renderAll();
@@ -453,12 +495,37 @@ team_plot_widget
 ## RECENT GAMES
 
 ```{r recent-games-shell}
-div(
-  class = "game-panel",
   div(
-    class = "game-panel-head",
-    tags$div(id = "recent-games-count", class = "table-count")
-  ),
+    class = "game-panel",
+    div(
+      class = "game-panel-head",
+      tags$div(
+        class = "browser-controls browser-controls-wide",
+        div(
+          class = "control-block control-block-year",
+          tags$label(`for` = "recent-games-sort", class = "control-label", "SORT"),
+          tags$select(
+            id = "recent-games-sort",
+            class = "control-input",
+            tags$option(value = "LATEST", "LATEST"),
+            tags$option(value = "SCORED", "SCORED"),
+            tags$option(value = "ALLOWED", "ALLOWED"),
+            tags$option(value = "MOVE", "RATING MOVE")
+          )
+        ),
+        div(
+          class = "control-block control-block-year",
+          tags$label(`for` = "recent-games-direction", class = "control-label", "ORDER"),
+          tags$select(
+            id = "recent-games-direction",
+            class = "control-input",
+            tags$option(value = "DESC", "DESC"),
+            tags$option(value = "ASC", "ASC")
+          )
+        )
+      ),
+      tags$div(id = "recent-games-count", class = "table-count")
+    ),
   tags$div(id = "recent-games-table")
 )
 ```
