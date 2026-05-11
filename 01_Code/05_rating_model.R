@@ -18,7 +18,8 @@
 #
 # 表示スケール:
 #   内部計算は Elo 標準スケール (init=1500, 400点差=10:1)
-#   出力時に偏差値スケール (mean=50, sd=10) に変換して display_rating として付与
+#   display_rating は出力段階で一度だけ偏差値スケール (mean=50, sd=10) に変換し、
+#   Web 側ではこの列をそのまま利用する
 #
 # 検証: ウォークフォワードCV (学習: 2000-2019, 評価: 2020-2026)
 #   指標: Log-loss, Accuracy, Brier Score
@@ -465,6 +466,49 @@ best_history <- switch(best_model_name,
   "Glicko2 + Score"  = res_g2_sc$history
 )
 
+attach_display_history <- function(history, init_r = INIT_RATING) {
+  teams <- sort(unique(c(history$team1, history$team2)))
+  current_ratings <- setNames(rep(init_r, length(teams)), teams)
+  n <- nrow(history)
+
+  display_r1_before <- numeric(n)
+  display_r2_before <- numeric(n)
+  display_r1_after  <- numeric(n)
+  display_r2_after  <- numeric(n)
+  display_delta1    <- numeric(n)
+  display_delta2    <- numeric(n)
+
+  for (i in seq_len(n)) {
+    team1 <- history$team1[[i]]
+    team2 <- history$team2[[i]]
+
+    before_display <- setNames(to_hensachi(unname(current_ratings)), names(current_ratings))
+    display_r1_before[[i]] <- before_display[[team1]]
+    display_r2_before[[i]] <- before_display[[team2]]
+
+    current_ratings[[team1]] <- history$r1_after[[i]]
+    current_ratings[[team2]] <- history$r2_after[[i]]
+
+    after_display <- setNames(to_hensachi(unname(current_ratings)), names(current_ratings))
+    display_r1_after[[i]] <- after_display[[team1]]
+    display_r2_after[[i]] <- after_display[[team2]]
+    display_delta1[[i]] <- round(display_r1_after[[i]] - display_r1_before[[i]], 1)
+    display_delta2[[i]] <- round(display_r2_after[[i]] - display_r2_before[[i]], 1)
+  }
+
+  history |>
+    mutate(
+      display_r1_before = display_r1_before,
+      display_r2_before = display_r2_before,
+      display_r1_after = display_r1_after,
+      display_r2_after = display_r2_after,
+      display_delta1 = display_delta1,
+      display_delta2 = display_delta2
+    )
+}
+
+best_history <- attach_display_history(best_history)
+
 # ---- レーティングスナップショット（チーム×試合日）----
 rating_snapshot <- function(history) {
   all_teams <- sort(unique(c(history$team1, history$team2)))
@@ -520,9 +564,15 @@ game_results_with_ratings <- best_history |>
     season = if_else(month(gamedate) <= 8, "春", "秋"),
     year   = year(gamedate)
   ) |>
-  select(gamedate, year, season, gametype,
-         team1, r1_before, score1, score2, team2, r2_before,
-         E1, delta)
+  select(
+    gamedate, year, season, gametype,
+    team1, r1_before, display_r1_before,
+    score1, score2,
+    team2, r2_before, display_r2_before,
+    E1, delta, display_delta1, display_delta2,
+    r1_after, display_r1_after,
+    r2_after, display_r2_after
+  )
 
 write_excel_csv(game_results_with_ratings,
                 "data_out/ratings/game_results_with_ratings.csv")

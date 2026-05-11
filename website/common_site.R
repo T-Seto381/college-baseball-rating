@@ -115,17 +115,6 @@ team_meta <- teams_info |>
     c3
   )
 
-global_mean <- mean(rating_hist$rating)
-global_sd <- sd(rating_hist$rating)
-
-to_disp <- function(r) {
-  round(50 + 10 * (r - global_mean) / global_sd, 1)
-}
-
-to_disp_delta <- function(delta) {
-  round(10 * delta / global_sd, 1)
-}
-
 fmt_date <- function(x) {
   ifelse(is.na(x), "", format(as.Date(x), "%Y/%m/%d"))
 }
@@ -225,9 +214,9 @@ team_game_log <- bind_rows(
       opponent = team2,
       score_for = score1,
       score_against = score2,
-      rating_before_raw = r1_before,
-      rating_after_raw = r1_before + delta,
-      rating_delta_raw = delta
+      rating_before = round(display_r1_before, 1),
+      rating_after = round(display_r1_after, 1),
+      rating_delta = round(display_delta1, 1)
     ),
   game_results |>
     transmute(
@@ -239,9 +228,9 @@ team_game_log <- bind_rows(
       opponent = team1,
       score_for = score2,
       score_against = score1,
-      rating_before_raw = r2_before,
-      rating_after_raw = r2_before - delta,
-      rating_delta_raw = -delta
+      rating_before = round(display_r2_before, 1),
+      rating_after = round(display_r2_after, 1),
+      rating_delta = round(display_delta2, 1)
     )
 ) |>
   left_join(
@@ -258,7 +247,7 @@ team_game_log <- bind_rows(
   rename(opponent_name = TeamName, opponent_color = c1) |>
   left_join(
     rank_history |>
-      select(gamedate = date, team, rank_after = rank, rating_after_hist = display_rating),
+      select(gamedate = date, team, rank_after = rank),
     by = c("gamedate", "team")
   ) |>
   mutate(
@@ -269,9 +258,6 @@ team_game_log <- bind_rows(
     ),
     score_label = paste0(score_for, "-", score_against),
     matchup_label = paste(team_name, opponent_name, sep = " vs "),
-    rating_before = to_disp(rating_before_raw),
-    rating_after = if_else(is.na(rating_after_hist), to_disp(rating_after_raw), round(rating_after_hist, 1)),
-    rating_delta = to_disp_delta(rating_delta_raw),
     hover_result = paste0(team_name, " ", score_for, "-", score_against, " ", opponent_name)
   )
 
@@ -342,8 +328,8 @@ games_display <- game_results |>
     gamedate = as.Date(gamedate),
     date_label = fmt_date(gamedate),
     score_label = paste0(score1, " - ", score2),
-    rating_move_team1 = to_disp_delta(delta),
-    rating_move_team2 = to_disp_delta(-delta),
+    rating_move_team1 = round(display_delta1, 1),
+    rating_move_team2 = round(display_delta2, 1),
     rating_move_label = paste0(
       team1_name, " ", sprintf("%+.1f", rating_move_team1),
       " / ",
@@ -357,7 +343,7 @@ games_display <- game_results |>
 
 highlight_games <- games_display |>
   mutate(
-    total_level = round(to_disp(r1_before) + to_disp(r2_before), 1),
+    total_level = round(display_r1_before + display_r2_before, 1),
     total_movement = round(abs(rating_move_team1), 1)
   )
 

@@ -12,6 +12,7 @@ team_series <- rating_hist |>
   filter(date <= Sys.Date()) |>
   left_join(team_meta, by = "team") |>
   filter(!is.na(TeamName)) |>
+  arrange(team, date) |>
   transmute(
     team,
     TeamName,
@@ -23,6 +24,7 @@ team_series <- rating_hist |>
   )
 
 league_series <- league_history |>
+  arrange(LeagueName, date) |>
   transmute(
     league = LeagueName,
     date = format(date, "%Y-%m-%d"),
@@ -40,6 +42,30 @@ default_leagues <- current_league_table |>
 
 default_start_year <- current_year
 default_end_year <- current_year
+
+build_rangebreaks <- function(date_values) {
+  dates <- sort(unique(as.Date(date_values)))
+
+  if (length(dates) < 2) {
+    return(list())
+  }
+
+  skipped <- as.Date(character())
+
+  for (i in 2:length(dates)) {
+    gap_days <- as.integer(dates[[i]] - dates[[i - 1]])
+    if (gap_days > 1) {
+      gap_dates <- seq(dates[[i - 1]] + 1, dates[[i]] - 1, by = "day")
+      skipped <- c(skipped, gap_dates)
+    }
+  }
+
+  if (length(skipped) == 0) {
+    return(list())
+  }
+
+  list(list(values = format(skipped, "%Y-%m-%d")))
+}
 
 build_team_plot <- function(selected_teams, start_year, end_year) {
   plot_df <- team_series |>
@@ -68,14 +94,19 @@ build_team_plot <- function(selected_teams, start_year, end_year) {
     color = ~TeamName,
     colors = setNames(plot_df$color, plot_df$TeamName),
     type = "scatter",
-    mode = "lines",
+    mode = "lines+markers",
+    marker = list(size = 5),
     hovertemplate = "%{x|%Y/%m/%d}<br>%{fullData.name}: %{y:.1f}<extra></extra>"
   ) |>
     layout(
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(255,255,255,0.96)",
       margin = list(l = 48, r = 20, t = 20, b = 44),
-      xaxis = list(title = "", tickformat = "%Y/%m"),
+      xaxis = list(
+        title = "",
+        tickformat = "%Y/%m",
+        rangebreaks = build_rangebreaks(plot_df$date)
+      ),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
     ) |>
@@ -108,14 +139,19 @@ build_league_plot <- function(selected_leagues, start_year, end_year) {
     y = ~rating,
     color = ~league,
     type = "scatter",
-    mode = "lines",
+    mode = "lines+markers",
+    marker = list(size = 5),
     hovertemplate = "%{x|%Y/%m/%d}<br>%{fullData.name}: %{y:.1f}<extra></extra>"
   ) |>
     layout(
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(255,255,255,0.96)",
       margin = list(l = 48, r = 20, t = 20, b = 44),
-      xaxis = list(title = "", tickformat = "%Y/%m"),
+      xaxis = list(
+        title = "",
+        tickformat = "%Y/%m",
+        rangebreaks = build_rangebreaks(plot_df$date)
+      ),
       yaxis = list(title = "RATING"),
       legend = list(orientation = "h", x = 0, y = 1.12)
     ) |>
@@ -231,9 +267,10 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
               x: [],
               y: [],
               name: row.TeamName,
-              mode: 'lines',
+              mode: 'lines+markers',
               type: 'scatter',
               line: { color: row.color, width: 3 },
+              marker: { size: 5, color: row.color },
               hovertemplate: '%{x|%Y/%m/%d}<br>' + row.TeamName + ': %{y:.1f}<extra></extra>'
             };
           }
@@ -241,6 +278,30 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
           grouped[row.team].y.push(row.rating);
         });
         return Object.keys(grouped).map(function(key) { return grouped[key]; });
+      }
+
+      function buildRangeBreaks(filtered) {
+        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date; }))).sort();
+
+        if (uniqueDates.length < 2) {
+          return [];
+        }
+
+        const skipped = [];
+
+        for (let i = 1; i < uniqueDates.length; i += 1) {
+          const prev = new Date(uniqueDates[i - 1] + 'T00:00:00');
+          const next = new Date(uniqueDates[i] + 'T00:00:00');
+          const cursor = new Date(prev.getTime());
+          cursor.setDate(cursor.getDate() + 1);
+
+          while (cursor < next) {
+            skipped.push(cursor.toISOString().slice(0, 10));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        return skipped.length ? [{ values: skipped }] : [];
       }
 
       function render() {
@@ -251,11 +312,15 @@ build_team_plot(default_team_ids, default_start_year, default_end_year) |>
           startYear = endYear;
           endYear = next;
         }
-        Plotly.react(el, buildTraces(selectedValues(), startYear, endYear), {
+        const selectedIds = selectedValues();
+        const filtered = rows.filter(function(row) {
+          return selectedIds.indexOf(row.team) >= 0 && row.year >= startYear && row.year <= endYear;
+        });
+        Plotly.react(el, buildTraces(selectedIds, startYear, endYear), {
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(255,255,255,0.96)',
           margin: { l: 48, r: 20, t: 20, b: 44 },
-          xaxis: { title: '', tickformat: '%Y/%m' },
+          xaxis: { title: '', tickformat: '%Y/%m', rangebreaks: buildRangeBreaks(filtered) },
           yaxis: { title: 'RATING' },
           legend: { orientation: 'h', x: 0, y: 1.12 }
         }, { displayModeBar: false, responsive: true });
@@ -366,9 +431,10 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
               x: [],
               y: [],
               name: row.league,
-              mode: 'lines',
+              mode: 'lines+markers',
               type: 'scatter',
               line: { width: 3 },
+              marker: { size: 5 },
               hovertemplate: '%{x|%Y/%m/%d}<br>' + row.league + ': %{y:.1f}<extra></extra>'
             };
           }
@@ -376,6 +442,30 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
           grouped[row.league].y.push(row.rating);
         });
         return Object.keys(grouped).map(function(key) { return grouped[key]; });
+      }
+
+      function buildRangeBreaks(filtered) {
+        const uniqueDates = Array.from(new Set(filtered.map(function(row) { return row.date; }))).sort();
+
+        if (uniqueDates.length < 2) {
+          return [];
+        }
+
+        const skipped = [];
+
+        for (let i = 1; i < uniqueDates.length; i += 1) {
+          const prev = new Date(uniqueDates[i - 1] + 'T00:00:00');
+          const next = new Date(uniqueDates[i] + 'T00:00:00');
+          const cursor = new Date(prev.getTime());
+          cursor.setDate(cursor.getDate() + 1);
+
+          while (cursor < next) {
+            skipped.push(cursor.toISOString().slice(0, 10));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        return skipped.length ? [{ values: skipped }] : [];
       }
 
       function render() {
@@ -386,11 +476,15 @@ build_league_plot(default_leagues, default_start_year, default_end_year) |>
           startYear = endYear;
           endYear = next;
         }
-        Plotly.react(el, buildTraces(selectedValues(), startYear, endYear), {
+        const selectedIds = selectedValues();
+        const filtered = rows.filter(function(row) {
+          return selectedIds.indexOf(row.league) >= 0 && row.year >= startYear && row.year <= endYear;
+        });
+        Plotly.react(el, buildTraces(selectedIds, startYear, endYear), {
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(255,255,255,0.96)',
           margin: { l: 48, r: 20, t: 20, b: 44 },
-          xaxis: { title: '', tickformat: '%Y/%m' },
+          xaxis: { title: '', tickformat: '%Y/%m', rangebreaks: buildRangeBreaks(filtered) },
           yaxis: { title: 'RATING' },
           legend: { orientation: 'h', x: 0, y: 1.12 }
         }, { displayModeBar: false, responsive: true });

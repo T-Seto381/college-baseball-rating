@@ -23,7 +23,7 @@ team_games <- team_game_log |>
   arrange(gamedate) |>
   mutate(
     game_number = row_number(),
-    year_key = as.character(year(gamedate))
+    year_value = year(gamedate)
   )
 
 team_scope <- team_games |>
@@ -91,18 +91,18 @@ current_note <- if (nrow(team_current) > 0) {
   "NO DATA"
 }
 
-team_year_options <- sort(unique(team_games$year_key), decreasing = TRUE)
-default_year_key <- if (as.character(current_year) %in% team_year_options) {
-  as.character(current_year)
+team_year_options <- sort(unique(team_games$year_value))
+default_year_value <- if (current_year %in% team_year_options) {
+  current_year
 } else if (length(team_year_options) > 0) {
-  team_year_options[[1]]
+  max(team_year_options)
 } else {
-  "ALL"
+  current_year
 }
 
 team_plot_rows <- team_games |>
   transmute(
-    year_key,
+    year_value,
     date = format(gamedate, "%Y-%m-%d"),
     rating_after = round(rating_after, 1),
     hover_text = paste0(
@@ -119,7 +119,7 @@ team_plot_rows <- team_games |>
 team_game_rows <- team_games |>
   arrange(desc(gamedate), desc(gametype)) |>
   transmute(
-    year_key,
+    year_value,
     date_label = fmt_date(gamedate),
     gametype,
     team_name,
@@ -136,7 +136,9 @@ team_game_rows <- team_games |>
 team_widget_payload <- list(
   points = team_plot_rows,
   games = team_game_rows,
-  defaultYear = default_year_key
+  defaultMode = "RANGE",
+  defaultStartYear = default_year_value,
+  defaultEndYear = default_year_value
 )
 
 team_plot_widget <- plot_ly() |>
@@ -151,12 +153,17 @@ team_plot_widget <- plot_ly() |>
   config(displayModeBar = FALSE, responsive = TRUE) |>
   htmlwidgets::onRender(
     "function(el, x, data) {
-      const selector = document.getElementById('team-view-year');
+      const modeSelector = document.getElementById('team-view-mode');
+      const startSelector = document.getElementById('team-start-year');
+      const endSelector = document.getElementById('team-end-year');
+      const rangeLabel = document.getElementById('team-range-label');
       const tableTarget = document.getElementById('recent-games-table');
       const countTarget = document.getElementById('recent-games-count');
       const points = data.points || [];
       const games = data.games || [];
-      const defaultYear = data.defaultYear || 'ALL';
+      const defaultMode = data.defaultMode || 'RANGE';
+      const defaultStartYear = Number(data.defaultStartYear || 2026);
+      const defaultEndYear = Number(data.defaultEndYear || defaultStartYear);
 
       function esc(v) {
         return String(v ?? '').replace(/[&<>\\\"']/g, function(ch) {
@@ -168,21 +175,35 @@ team_plot_widget <- plot_ly() |>
         return new Date(value + 'T00:00:00');
       }
 
-      function activeYear() {
-        return selector ? selector.value : defaultYear;
+      function activeRange() {
+        const mode = modeSelector ? modeSelector.value : defaultMode;
+        let startYear = startSelector ? Number(startSelector.value) : defaultStartYear;
+        let endYear = endSelector ? Number(endSelector.value) : defaultEndYear;
+
+        if (startYear > endYear) {
+          const next = startYear;
+          startYear = endYear;
+          endYear = next;
+        }
+
+        return {
+          mode: mode,
+          startYear: startYear,
+          endYear: endYear
+        };
       }
 
       function filterPoints() {
-        const yearKey = activeYear();
+        const active = activeRange();
         return points.filter(function(row) {
-          return yearKey === 'ALL' || row.year_key === yearKey;
+          return active.mode === 'ALL' || (row.year_value >= active.startYear && row.year_value <= active.endYear);
         });
       }
 
       function filterGames() {
-        const yearKey = activeYear();
+        const active = activeRange();
         return games.filter(function(row) {
-          return yearKey === 'ALL' || row.year_key === yearKey;
+          return active.mode === 'ALL' || (row.year_value >= active.startYear && row.year_value <= active.endYear);
         });
       }
 
@@ -196,12 +217,6 @@ team_plot_widget <- plot_ly() |>
         for (let i = 1; i < rows.length; i += 1) {
           const prev = parseDate(rows[i - 1].date);
           const next = parseDate(rows[i].date);
-          const diff = Math.round((next - prev) / 86400000);
-
-          if (diff <= 10) {
-            continue;
-          }
-
           const cursor = new Date(prev.getTime());
           cursor.setDate(cursor.getDate() + 1);
 
@@ -212,6 +227,34 @@ team_plot_widget <- plot_ly() |>
         }
 
         return skipped.length ? [{ values: skipped }] : [];
+      }
+
+      function updateRangeLabel() {
+        if (!rangeLabel) {
+          return;
+        }
+
+        const active = activeRange();
+        rangeLabel.textContent = active.mode === 'ALL'
+          ? 'ALL'
+          : active.startYear + '~' + active.endYear;
+      }
+
+      function syncControls() {
+        const active = activeRange();
+        const disabled = active.mode === 'ALL';
+
+        if (startSelector) {
+          startSelector.disabled = disabled;
+          startSelector.value = String(active.startYear);
+        }
+
+        if (endSelector) {
+          endSelector.disabled = disabled;
+          endSelector.value = String(active.endYear);
+        }
+
+        updateRangeLabel();
       }
 
       function renderPlot() {
@@ -282,13 +325,24 @@ team_plot_widget <- plot_ly() |>
       }
 
       function renderAll() {
+        syncControls();
         renderPlot();
         renderGames();
       }
 
-      if (selector) {
-        selector.addEventListener('change', renderAll);
-        selector.value = defaultYear;
+      if (modeSelector) {
+        modeSelector.addEventListener('change', renderAll);
+        modeSelector.value = defaultMode;
+      }
+
+      if (startSelector) {
+        startSelector.addEventListener('change', renderAll);
+        startSelector.value = String(defaultStartYear);
+      }
+
+      if (endSelector) {
+        endSelector.addEventListener('change', renderAll);
+        endSelector.value = String(defaultEndYear);
       }
 
       renderAll();
@@ -343,24 +397,51 @@ div(
 ## RATING TREND
 
 ```{r team-year-selector}
-div(
-  class = "browser-controls",
+tagList(
   div(
-    class = "control-block",
-    tags$label(`for` = "team-view-year", class = "control-label", "VIEW"),
-    tags$select(
-      id = "team-view-year",
-      class = "control-input",
-      tags$option(value = "ALL", "ALL"),
-      lapply(team_year_options, function(year_value) {
-        tags$option(
-          value = year_value,
-          selected = if (year_value == default_year_key) "selected" else NULL,
-          year_value
-        )
-      })
+    class = "browser-controls",
+    div(
+      class = "control-block",
+      tags$label(`for` = "team-view-mode", class = "control-label", "VIEW"),
+      tags$select(
+        id = "team-view-mode",
+        class = "control-input",
+        tags$option(value = "RANGE", "YEAR RANGE"),
+        tags$option(value = "ALL", "ALL")
+      )
+    ),
+    div(
+      class = "control-block control-block-year",
+      tags$label(`for` = "team-start-year", class = "control-label", "FROM"),
+      tags$select(
+        id = "team-start-year",
+        class = "control-input",
+        lapply(team_year_options, function(year_value) {
+          tags$option(
+            value = year_value,
+            selected = if (year_value == default_year_value) "selected" else NULL,
+            year_value
+          )
+        })
+      )
+    ),
+    div(
+      class = "control-block control-block-year",
+      tags$label(`for` = "team-end-year", class = "control-label", "TO"),
+      tags$select(
+        id = "team-end-year",
+        class = "control-input",
+        lapply(team_year_options, function(year_value) {
+          tags$option(
+            value = year_value,
+            selected = if (year_value == default_year_value) "selected" else NULL,
+            year_value
+          )
+        })
+      )
     )
-  )
+  ),
+  div(id = "team-range-label", class = "table-count")
 )
 ```
 
