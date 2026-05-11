@@ -1,0 +1,147 @@
+---
+title: "試合一覧"
+format:
+  html:
+    page-layout: full
+---
+
+```{r setup}
+source("common_site.R", local = TRUE)
+
+year_start_default <- sprintf("%d-01-01", current_year)
+year_end_default <- sprintf("%d-12-31", current_year)
+
+games_page_data <- games_display |>
+  transmute(
+    date = format(gamedate, "%Y-%m-%d"),
+    date_label,
+    season,
+    gametype,
+    team1,
+    team1_name,
+    team1_url,
+    team1_color,
+    team2,
+    team2_name,
+    team2_url,
+    team2_color,
+    score_label,
+    rating_move_label
+  )
+
+games_page_json <- toJSON(games_page_data, dataframe = "rows", auto_unbox = TRUE)
+```
+
+::: {.minimal-hero}
+<div class="minimal-kicker">GAMES</div>
+<h1 class="minimal-title">GAME INDEX</h1>
+<div class="hero-meta-strip">
+  <span>DEFAULT `r current_year`</span>
+  <span>TOTAL `r nrow(games_display)`</span>
+</div>
+:::
+
+```{r games-controls}
+div(
+  class = "browser-controls browser-controls-wide",
+  div(
+    class = "control-block",
+    tags$label(`for` = "games-team-filter", class = "control-label", "UNIVERSITY"),
+    tags$select(
+      id = "games-team-filter",
+      class = "control-input control-multi",
+      multiple = "multiple",
+      lapply(seq_len(nrow(current_team_table)), function(i) {
+        row <- current_team_table[i, ]
+        tags$option(value = row$team, row$TeamName)
+      })
+    )
+  ),
+  div(
+    class = "control-block",
+    tags$label(`for` = "games-type-filter", class = "control-label", "TYPE"),
+    tags$select(
+      id = "games-type-filter",
+      class = "control-input control-multi",
+      multiple = "multiple",
+      lapply(sort(unique(games_display$gametype)), function(type_name) {
+        tags$option(value = type_name, type_name)
+      })
+    )
+  ),
+  div(
+    class = "control-block control-block-year",
+    tags$label(`for` = "games-date-start", class = "control-label", "FROM"),
+    tags$input(
+      id = "games-date-start",
+      class = "control-input",
+      type = "date",
+      value = year_start_default
+    )
+  ),
+  div(
+    class = "control-block control-block-year",
+    tags$label(`for` = "games-date-end", class = "control-label", "TO"),
+    tags$input(
+      id = "games-date-end",
+      class = "control-input",
+      type = "date",
+      value = year_end_default
+    )
+  )
+)
+```
+
+<div id="games-page-count" class="table-count"></div>
+<div id="games-page-table"></div>
+
+```{r games-script}
+games_script <- paste0(
+  "(function(){",
+  "const rows = ", games_page_json, ";",
+  "const teamSelect = document.getElementById('games-team-filter');",
+  "const typeSelect = document.getElementById('games-type-filter');",
+  "const startInput = document.getElementById('games-date-start');",
+  "const endInput = document.getElementById('games-date-end');",
+  "const count = document.getElementById('games-page-count');",
+  "const target = document.getElementById('games-page-table');",
+  "if (!teamSelect || !typeSelect || !startInput || !endInput || !count || !target) { return; }",
+  "function esc(v){ return String(v ?? '').replace(/[&<>\\\"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'})[ch]; }); }",
+  "function selectedValues(node){ return Array.from(node.selectedOptions).map(function(opt){ return opt.value; }); }",
+  "function filterRows(){",
+  "  const teams = selectedValues(teamSelect);",
+  "  const types = selectedValues(typeSelect);",
+  "  const startDate = startInput.value || '0000-01-01';",
+  "  const endDate = endInput.value || '9999-12-31';",
+  "  return rows.filter(function(row){",
+  "    const teamOk = !teams.length || teams.indexOf(row.team1) >= 0 || teams.indexOf(row.team2) >= 0;",
+  "    const typeOk = !types.length || types.indexOf(row.gametype) >= 0;",
+  "    const dateOk = row.date >= startDate && row.date <= endDate;",
+  "    return teamOk && typeOk && dateOk;",
+  "  });",
+  "}",
+  "function render(){",
+  "  const filtered = filterRows();",
+  "  count.textContent = filtered.length + ' games';",
+  "  if (!filtered.length) {",
+  "    target.innerHTML = '<div class=\"empty-state\">NO GAMES</div>';",
+  "    return;",
+  "  }",
+  "  const body = filtered.map(function(row){",
+  "    return '<tr>' +",
+  "      '<td>' + esc(row.date_label) + '</td>' +",
+  "      '<td>' + esc(row.season) + '</td>' +",
+  "      '<td>' + esc(row.gametype) + '</td>' +",
+  "      '<td class=\"matchup-col\"><a href=\"' + esc(row.team1_url) + '\" style=\"color:' + esc(row.team1_color) + '\" class=\"team-link-inline\">' + esc(row.team1_name) + '</a><span class=\"score-inline\">' + esc(row.score_label) + '</span><a href=\"' + esc(row.team2_url) + '\" style=\"color:' + esc(row.team2_color) + '\" class=\"team-link-inline\">' + esc(row.team2_name) + '</a></td>' +",
+  "      '<td>' + esc(row.rating_move_label) + '</td>' +",
+  "    '</tr>';",
+  "  }).join('');",
+  "  target.innerHTML = '<div class=\"table-shell compact-table-shell\"><table class=\"compact-data-table\"><thead><tr><th>DATE</th><th>SEASON</th><th>TYPE</th><th>MATCHUP</th><th>RATING MOVE</th></tr></thead><tbody>' + body + '</tbody></table></div>';",
+  "}",
+  "[teamSelect, typeSelect, startInput, endInput].forEach(function(node){ node.addEventListener('change', render); });",
+  "render();",
+  "})();"
+)
+
+tags$script(HTML(games_script))
+```

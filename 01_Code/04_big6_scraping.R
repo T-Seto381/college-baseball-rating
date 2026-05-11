@@ -149,9 +149,10 @@ parse_score_cell <- function(x) {
 #   分離形式: "9／" → month=9, "9 (土)" → day=9
 # ============================================================
 
-parse_date_from_cells <- function(cells, current_month, current_day, year) {
+parse_date_from_cells <- function(cells, current_month, year) {
   month <- current_month
-  day   <- current_day
+  day   <- NA_integer_
+  has_day <- FALSE
 
   for (cell in cells) {
     cell_clean <- str_replace_all(cell, "[　 \t]+", " ") |> trimws()
@@ -164,6 +165,7 @@ parse_date_from_cells <- function(cells, current_month, current_day, year) {
       month <- as.integer(parts[1])
       d_raw <- regmatches(parts[2], regexpr("^[0-9]+", parts[2]))
       day   <- as.integer(d_raw)
+      has_day <- TRUE
       break
     }
 
@@ -178,11 +180,12 @@ parse_date_from_cells <- function(cells, current_month, current_day, year) {
       m_day <- regmatches(cell_clean, regexpr("^([0-9]{1,2})\\s*[(（]", cell_clean))
       if (length(m_day) > 0) {
         day <- as.integer(trimws(sub("\\s*[(（].*$", "", m_day)))
+        has_day <- TRUE
       }
     }
   }
 
-  list(month = month, day = day)
+  list(month = month, day = day, has_day = has_day)
 }
 
 make_date <- function(year, month, day) {
@@ -202,28 +205,12 @@ make_date <- function(year, month, day) {
 # 3. 月・日を追跡しながら試合日を組み立てる
 # ============================================================
 
-parse_schedule_table <- function(html, year) {
-  tables <- html |> html_elements("table")
-  if (length(tables) == 0) return(NULL)
-
-  # 各テーブルのスコア含有行数をカウント → 最大のテーブルを選ぶ
-  score_counts <- map_int(tables, function(tbl) {
-    rows <- tbl |> html_elements("tr")
-    sum(map_lgl(rows, function(r) {
-      cells <- r |> html_elements("td, th") |> html_text2()
-      any(is_score_cell(str_replace_all(cells, "[　 \t]+", " ") |> trimws()))
-    }))
-  })
-
-  if (max(score_counts) == 0) return(NULL)
-
-  # 最もスコアの多いテーブル（複数ある場合は最初のもの）を選択
-  best_tbl <- tables[[ which.max(score_counts) ]]
-  rows <- best_tbl |> html_elements("tr")
+parse_schedule_table_node <- function(tbl, year) {
+  rows <- tbl |> html_elements("tr")
+  if (length(rows) == 0) return(NULL)
 
   out           <- list()
   current_month <- NA_integer_
-  current_day   <- NA_integer_
 
   for (row in rows) {
     # セルテキスト取得（全角スペース除去・空破棄）
@@ -235,12 +222,17 @@ parse_schedule_table <- function(html, year) {
     if (length(cells) == 0) next
 
     # 日付更新
-    date_result   <- parse_date_from_cells(cells, current_month, current_day, year)
+    date_result   <- parse_date_from_cells(cells, current_month, year)
     current_month <- date_result$month
-    current_day   <- date_result$day
 
     # スコアセルを検索し、前後のチーム名を取得
     score_positions <- which(is_score_cell(cells))
+    row_day <- date_result$day
+
+    # 実際の日程表は1行あたり最大2試合。日付のない行や異常に多い行は除外する。
+    if (!date_result$has_day || length(score_positions) == 0 || length(score_positions) > 2) {
+      next
+    }
 
     for (si in score_positions) {
       if (si < 2 || si >= length(cells)) next
@@ -253,7 +245,7 @@ parse_schedule_table <- function(html, year) {
       sc <- parse_score_cell(cells[si])
       if (is.null(sc)) next
 
-      game_date <- make_date(year, current_month, current_day)
+      game_date <- make_date(year, current_month, row_day)
 
       out[[length(out) + 1]] <- tibble(
         date   = game_date,
@@ -266,8 +258,20 @@ parse_schedule_table <- function(html, year) {
   }
 
   if (length(out) == 0) return(NULL)
+  bind_rows(out)
+}
 
-  bind_rows(out) |>
+parse_schedule_table <- function(html, year) {
+  tables <- html |> html_elements("table")
+  if (length(tables) == 0) return(NULL)
+
+  parsed <- tables |>
+    map(~ parse_schedule_table_node(.x, year)) |>
+    compact()
+
+  if (length(parsed) == 0) return(NULL)
+
+  bind_rows(parsed) |>
     filter(!is.na(date), !is.na(score1), !is.na(score2)) |>
     distinct(date, team1, team2, score1, score2)
 }

@@ -5,18 +5,16 @@ project:
 lang: ja
 
 website:
-  title: "大学野球レーティング"
-  description: "東京六大学野球を対象にした大学野球レーティングサイト"
+  title: "UNIV_BASEBALL_RANKING"
+  description: "大学野球レーティング"
   navbar:
     left:
       - href: index.qmd
-        text: 現在の順位
+        text: LATEST
       - href: explore.qmd
-        text: 大学・リーグ一覧
-      - href: compare.qmd
-        text: 大学比較
-      - href: history.qmd
-        text: 歴史と記録
+        text: 大学・リーグ
+      - href: games.qmd
+        text: 試合一覧
       - href: methodology.qmd
         text: 計算方法
     right:
